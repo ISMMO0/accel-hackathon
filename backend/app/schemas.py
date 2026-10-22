@@ -99,6 +99,44 @@ class CompanyStrategy(Strict):
     beat: list[str] = Field(description="1 to 3 concrete ways to beat this competitor")
 
 
+# ---- Planner (ideal business plan) ----
+class PriceItem(Strict):
+    item: str
+    price: str = Field(description="Recommended price with currency, e.g. '€13.50' or '€12/mo'")
+    why: str = Field(description="One sentence comparing with competitors' prices from the data")
+
+
+class Location(Strict):
+    area: str = Field(description="Recommended area or street, e.g. 'Rue des Martyrs, South Pigalle, Paris 9e'; "
+                                  "for online products the main launch market, e.g. 'France, then Benelux'")
+    why: str
+    is_physical: bool = Field(description="True if the business needs a physical location")
+    map_query: str = Field(description="One simple place a map can find, e.g. 'Rue Cadet, Paris' (empty if online)")
+
+
+class Phase(Strict):
+    name: str = Field(description="e.g. 'Before launch', 'Launch week', 'First 3 months'")
+    actions: list[str]
+
+
+class Move(Strict):
+    competitor: str
+    move: str = Field(description="Concrete way to win customers from this competitor, grounded in its data")
+
+
+class BusinessPlan(Strict):
+    headline: str = Field(description="The plan in one sentence")
+    concept: str = Field(description="Positioning: what you sell, to whom, and why it wins here (2-3 sentences)")
+    price_list: list[PriceItem]
+    location: Location
+    phases: list[Phase]
+    beat: list[Move]
+    marketing: list[str] = Field(description="Channels and tactics, including social media; say when the data "
+                                             "doesn't show how competitors market themselves")
+    risks: list[str]
+    kpis: list[str]
+
+
 class Strategy(Strict):
     headline: str = Field(description="The gap in one sentence")
     detail: str = Field(description="Two or three sentences of evidence")

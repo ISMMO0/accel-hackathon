@@ -213,6 +213,17 @@ async def enrich(rid: str):
     return await hunt.start_enrich(rid)
 
 
+@app.post("/api/research/{rid}/plan")
+async def business_plan(rid: str):
+    """Planner agent: the ideal business plan for this project, from its stored data (~30s)."""
+    if not await get_store().get_research(rid):
+        raise HTTPException(404, "Research not found")
+    try:
+        return await hunt.make_plan(rid)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
 @app.get("/api/research/{rid}/facts")
 async def research_facts(rid: str):
     """Every stored fact of a research (the Data tab): company, kind, item, value, text, source."""

@@ -215,6 +215,16 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   Click to start, click again to stop; the text is sent automatically. Without the key: Chrome's built-in speech
   recognition. Tested: French and English clips transcribed in 3–4s.
 
+### Phase 3g: Planner agent, "Your ideal business plan" ✅ (idea from the coaches)
+- `POST /api/research/{id}/plan` → `hunt.make_plan()` → `llm.plan()` (Opus, effort medium, ~60–75s), schema
+  `BusinessPlan` (headline, concept, price_list[item/price/why], location[area/why/is_physical/map_query], phases,
+  beat[competitor/move], marketing, risks, kpis). Grounded only in stored facts (up to 25 per competitor); says when
+  data is missing (e.g. competitors' social media). Stored in `researches.market.biz_plan`; location geocoded.
+- Report order: orbiting competitors → title → **Your ideal business plan** card (Build / Open the full plan /
+  Rebuild) → verdict → tabs. Full plan opens in a wide side panel. Map shows a **green "Best spot for you"** zone.
+- Live example (ramen Paris 9e): bookable 36-seat shop near Trinité/Rue de Châteaudun, €13.50 bowl undercutting
+  Gaijin €14 and Kodawari €14.50, €17 lunch set vs Ippudo €21.50+, open Mondays (Ukiyo closes Mondays).
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +
