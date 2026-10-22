@@ -33,7 +33,10 @@ FactKind = Literal["price", "feature", "hiring", "review", "location", "funding"
 class ExtractedFact(Strict):
     kind: FactKind
     text: str = Field(description="One self-contained factual sentence, taken only from the page")
-    value: str = Field(description="Key value if any (a price, a city, a number), else empty string")
+    value: str = Field(description="Key value if any: for prices the number only (e.g. '14.50'), else a city, "
+                                   "a number, or empty string")
+    item: str = Field(description="For prices and features: the product, plan or menu item it is about "
+                                  "(e.g. 'Tonkotsu ramen', 'Pro plan'), else empty string")
 
 
 class PageExtraction(Strict):

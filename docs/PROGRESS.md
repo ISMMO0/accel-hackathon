@@ -174,6 +174,21 @@ change it re-runs Analyst+Strategist (~$0.09). The Scout prompt was tightened af
 close on that (67% vs 84%) but every claim is sourced and fresh (prices read today), it finds local businesses
 that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market costs ~nothing when nothing changed.
 
+### Phase 3c: the project keeps growing ✅ (13:00–13:30)
+- **Facts have an `item`** (menu item / plan) and a numeric `value` for prices (migration `003_items.sql`).
+- **Data tab** on every report (`GET /api/research/{id}/facts`): every stored fact, filter by competitor/type/text,
+  "Price list" toggle, sortable columns, links to sources.
+- **Enrich agent** (`POST /api/research/{id}/enrich`, `hunt._enrich`): for each competitor, searches for what's
+  missing (menu/prices if < 5 priced items, reviews, news), skips pages already read (page memory), extracts with
+  Haiku, saves, then re-runs Analyst + Strategist. Live feed on the report while it runs ("Enrich" button).
+  **Live result (ramen Paris 9e): 89 → 302 facts, 12 → 40 sources, 0 → 79 priced items in 76s.**
+- **Chat answers from memory first**: every stored fact (up to 40 per competitor) is in the prompt; tools only when
+  the facts don't answer. New tool `web_research(company, question)` searches, reads and **saves** new facts.
+  Live: answers in 5–14s, "answered from 259 stored facts", sourced.
+- **knowledge_log** table + `GET /api/knowledge`: facts/sources/priced items after every hunt, enrich round and chat
+  question that added data → "Knowledge growth" table on the Evidence page.
+- Deploy on Aiven Runtime was **cut for time**: demo runs on the laptop against Aiven Postgres.
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

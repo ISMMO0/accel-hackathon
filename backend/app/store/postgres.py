@@ -176,19 +176,20 @@ class PgStore:
         await self._exec(
             "WITH s AS (INSERT INTO snapshots (id, company_id, url, content_hash, text, fetcher) "
             "  VALUES ($1,$2,$3,$11,$4,$5) RETURNING id) "
-            "INSERT INTO facts (id, company_id, research_id, snapshot_id, kind, text, value, source) "
-            "SELECT f.id, $2, $6, s.id, f.kind, f.text, f.value, $3 FROM s, "
-            "unnest($7::text[], $8::text[], $9::text[], $10::text[]) AS f(id, kind, text, value) "
+            "INSERT INTO facts (id, company_id, research_id, snapshot_id, kind, text, value, source, item) "
+            "SELECT f.id, $2, $6, s.id, f.kind, f.text, f.value, $3, f.item FROM s, "
+            "unnest($7::text[], $8::text[], $9::text[], $10::text[], $12::text[]) AS f(id, kind, text, value, item) "
             "ON CONFLICT DO NOTHING",
             new_id(), company_id, url, text, fetcher, research_id,
             [new_id() for _ in facts], [f["kind"] for f in facts], [f["text"] for f in facts],
-            [f["value"] for f in facts], hashlib.sha256(text.encode()).hexdigest())
+            [f["value"] for f in facts], hashlib.sha256(text.encode()).hexdigest(), [f.get("item", "") for f in facts])
 
     async def page_memory(self, company_ids):
         """{(company_id, url): {"hash": h, "facts": [...]}} for pages already read: one query."""
         rows = await self._all(
             "SELECT DISTINCT ON (s.company_id, s.url) s.company_id, s.url, s.content_hash, "
-            "  coalesce((SELECT json_agg(json_build_object('kind', f.kind, 'text', f.text, 'value', f.value)) "
+            "  coalesce((SELECT json_agg(json_build_object('kind', f.kind, 'text', f.text, 'value', f.value, "
+            "                                              'item', f.item)) "
             "            FROM facts f WHERE f.company_id = s.company_id AND f.source = s.url), '[]') AS facts "
             "FROM snapshots s WHERE s.company_id = ANY($1::text[]) "
             "ORDER BY s.company_id, s.url, s.fetched_at DESC", list(company_ids))
@@ -197,8 +198,8 @@ class PgStore:
     async def report_facts(self, company_ids, per_company=8):
         """{company_id: {"count": n, "latest": [facts...]}} in one query."""
         rows = await self._all(
-            "SELECT company_id, kind, text, value, source, n FROM ("
-            "  SELECT company_id, kind, text, value, source, created_at, count(*) OVER w0 AS n, "
+            "SELECT company_id, kind, text, value, source, item, n FROM ("
+            "  SELECT company_id, kind, text, value, source, item, created_at, count(*) OVER w0 AS n, "
             "         row_number() OVER (PARTITION BY company_id ORDER BY created_at DESC) AS rn "
             "  FROM facts WHERE company_id = ANY($1::text[]) WINDOW w0 AS (PARTITION BY company_id)) x "
             "WHERE rn <= $2 ORDER BY company_id, created_at", list(company_ids), per_company)
@@ -217,6 +218,21 @@ class PgStore:
                                    "ORDER BY id")
         except asyncpg.UndefinedTableError:
             return []
+
+    async def all_facts(self, company_ids):
+        return await self._all("SELECT company_id, kind, text, value, item, source, created_at FROM facts "
+                               "WHERE company_id = ANY($1::text[]) ORDER BY company_id, created_at", list(company_ids))
+
+    async def log_knowledge(self, research_id, event):
+        await self._exec(
+            "INSERT INTO knowledge_log (research_id, event, facts, sources, priced_items) "
+            "SELECT $1, $2, count(*), count(DISTINCT f.source), count(*) FILTER (WHERE f.kind='price' AND f.item<>'') "
+            "FROM facts f WHERE f.company_id IN (SELECT company_id FROM research_companies WHERE research_id=$1)",
+            research_id, event)
+
+    async def knowledge_rows(self):
+        return await self._all("SELECT k.research_id, r.query, k.event, k.facts, k.sources, k.priced_items, k.created_at "
+                               "FROM knowledge_log k JOIN researches r ON r.id = k.research_id ORDER BY k.id")
 
     async def library_rows(self):
         """Every research with competitor count, fact count, unseen alerts and thumbnail data: one query."""

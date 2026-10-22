@@ -157,13 +157,15 @@ class MemoryStore:
     async def save_page(self, company_id, research_id, url, text, fetcher, facts):
         snap = await self.add_snapshot(company_id, url, text, fetcher)
         await self.add_facts([dict(company_id=company_id, research_id=research_id, snapshot_id=snap["id"],
-                                   kind=f["kind"], text=f["text"], value=f["value"], source=url) for f in facts])
+                                   kind=f["kind"], text=f["text"], value=f["value"], item=f.get("item", ""),
+                                   source=url) for f in facts])
 
     async def page_memory(self, company_ids):
         ids, out = set(company_ids), {}
         for s in self.snapshots:  # later snapshots overwrite earlier ones
             if s["company_id"] in ids:
-                facts = [{"kind": f["kind"], "text": f["text"], "value": f["value"]} for f in self.facts
+                facts = [{"kind": f["kind"], "text": f["text"], "value": f["value"], "item": f.get("item", "")}
+                         for f in self.facts
                          if f["company_id"] == s["company_id"] and f["source"] == s["url"]]
                 out[(s["company_id"], s["url"])] = {"hash": s["content_hash"], "facts": facts}
         return out
@@ -177,6 +179,21 @@ class MemoryStore:
 
     async def eval_rows(self):
         return []
+
+    async def all_facts(self, company_ids):
+        ids = set(company_ids)
+        return [{**f, "item": f.get("item", "")} for f in self.facts if f["company_id"] in ids]
+
+    async def log_knowledge(self, research_id, event):
+        ids = [c["id"] for c in await self.research_companies(research_id)]
+        fs = await self.all_facts(ids)
+        self.knowledge = getattr(self, "knowledge", []) + [{
+            "research_id": research_id, "query": self.researches[research_id]["query"], "event": event,
+            "facts": len(fs), "sources": len({f["source"] for f in fs}),
+            "priced_items": sum(1 for f in fs if f["kind"] == "price" and f["item"]), "created_at": now()}]
+
+    async def knowledge_rows(self):
+        return list(getattr(self, "knowledge", []))
 
     async def library_rows(self):
         out = []
