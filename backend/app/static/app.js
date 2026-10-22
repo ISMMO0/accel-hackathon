@@ -1,0 +1,342 @@
+/* Launch Spy frontend: renders everything from the API and the live event stream. */
+const AG={
+  scout:{n:"Scout",c:"#7cc4ff",job:"Finds competitors"},
+  research:{n:"Researcher",c:"#c79bff",job:"Reads sites with H agents"},
+  analyst:{n:"Analyst",c:"#5fe0b0",job:"Queries data, checks facts"},
+  strat:{n:"Strategist",c:"#ffb547",job:"Works out how to win"},
+  watch:{n:"Watcher",c:"#ff7a7a",job:"Tracks changes over time"},
+};
+const $=s=>document.querySelector(s);
+const NS="http://www.w3.org/2000/svg";
+const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const CX=450,CY=300;
+const posOf=(c,cx=CX,cy=CY,k=1)=>{const r=(90+(1-c.sim)*290)*k;const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r,cy+Math.sin(a)*r]};
+const fmt=v=>v==="0"?"Free":"€"+v;
+async function api(path,opts={}){
+  const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
+  if(!r.ok){let m=r.statusText;try{m=(await r.json()).detail||m}catch{}throw new Error(m)}
+  return r.json();
+}
+const reports={};  // research id -> last fetched report
+async function getReport(id,seen=false){const r=await api(`/api/research/${id}${seen?"?seen=true":""}`);reports[id]=r;return r}
+const mkt=r=>({...r.market,C:r.C});
+
+/* ---------------- status pill ---------------- */
+let LIVE=false;
+api("/api/health").then(h=>{
+  LIVE=h.live.llm;
+  $("#liveTag").textContent=LIVE?"Live agents":"Recorded data";
+  $("#liveTag").title=Object.entries(h.live).map(([k,v])=>`${k}: ${v?"live":"mock"}`).join(" · ");
+}).catch(()=>{});
+
+/* ---------------- dashboard: stage ---------------- */
+[120,215,310].forEach(r=>el("circle",{cx:CX,cy:CY,r,fill:"none",stroke:"#1a2027","stroke-dasharray":"2 6"},$("#rings")));
+$("#agents").innerHTML=Object.entries(AG).map(([k,a])=>`<div class="agent" id="ag-${k}" style="--c:${a.c}"><span class="dot"></span><div><div class="nm">${a.n}</div><div class="st">${a.job}</div></div></div>`).join("");
+const pips={};
+Object.entries(AG).forEach(([k,a],i)=>{
+  const g=el("g",{},$("#pips"));
+  el("circle",{r:13,fill:"none",stroke:a.c,"stroke-opacity":.3},g);
+  el("circle",{r:6.5,fill:a.c},g);
+  el("text",{class:"pipl",y:-20,"text-anchor":"middle"},g).textContent=a.n;
+  const ang=i/5*Math.PI*2;gsap.set(g,{x:CX+Math.cos(ang)*150,y:CY+Math.sin(ang)*100});
+  pips[k]=g;
+});
+let idle=true;
+function wander(k){
+  if(!idle)return;
+  const a=Math.random()*Math.PI*2,r=85+Math.random()*115;
+  gsap.to(pips[k],{x:CX+Math.cos(a)*r*1.35,y:CY+Math.sin(a)*r*.85,duration:3+Math.random()*3,ease:"sine.inOut",onComplete:()=>setTimeout(()=>wander(k),Math.random()*900)});
+}
+function startIdle(){idle=true;$("#pips").classList.add("idle");Object.keys(pips).forEach((k,i)=>setTimeout(()=>wander(k),i*250))}
+function stopIdle(){idle=false;$("#pips").classList.remove("idle");Object.values(pips).forEach(g=>gsap.killTweensOf(g))}
+gsap.to("#coreDisc",{attr:{r:37},duration:2.2,repeat:-1,yoyo:true,ease:"sine.inOut"});
+startIdle();
+
+let facts=0,comps=0,evs=0,t0=0,timer=null,running=false,cur=null,es=null;
+const nodes={};
+function tick(){$("#cComp").textContent=comps;$("#cFacts").textContent=facts;$("#cSrc").textContent=Math.max(0,Math.round(facts/3))}
+function addNode(c){
+  if(nodes[c.id])return;
+  const[x,y]=posOf(c);
+  const edge=el("line",{x1:CX,y1:CY,x2:CX,y2:CY,class:"edge"},$("#edges"));
+  const g=el("g",{class:"node",tabindex:0,role:"button","aria-label":c.n},$("#nodes"));
+  el("circle",{cx:x,cy:y,r:27,class:"disc"},g);
+  el("text",{x,y,class:"ini"},g).textContent=(c.n[0]||"?").toUpperCase();
+  el("text",{x,y:y+48,class:"lbl"},g).textContent=c.n;
+  const sub=el("text",{x,y:y+64,class:"sub"},g);sub.textContent="0 facts";
+  const open=()=>cur&&openDossier(cur,c.id);
+  g.addEventListener("click",open);g.addEventListener("keydown",e=>e.key==="Enter"&&open());
+  nodes[c.id]={g,sub,edge,x,y,f:0};
+  gsap.from(g,{opacity:0,scale:0,svgOrigin:`${x} ${y}`,duration:.7,ease:"back.out(1.8)"});
+  gsap.to(edge,{attr:{x2:x,y2:y},duration:.6,ease:"expo.out"});
+  comps++;tick();
+}
+function move(k,id){
+  if(!pips[k])return;
+  const t=id?nodes[id]:null;
+  const x=t?t.x+30:CX+(Math.random()-.5)*70,y=t?t.y-26:CY+(Math.random()-.5)*50;
+  gsap.to(pips[k],{x,y,duration:.9,ease:"expo.inOut",overwrite:true});
+  if(t){t.edge.classList.add("hot");setTimeout(()=>t.edge.classList.remove("hot"),1400)}
+}
+function setAgent(k,txt){
+  if(!AG[k])return;
+  document.querySelectorAll(".agent").forEach(a=>a.classList.remove("on"));
+  const a=$("#ag-"+k);a.classList.add("on");if(txt)a.querySelector(".st").textContent=txt;
+}
+function addFacts(id,n){
+  const nd=nodes[id];if(!nd||!n)return;
+  const o={v:nd.f};nd.f+=n;
+  gsap.to(o,{v:nd.f,duration:.8,onUpdate:()=>nd.sub.textContent=Math.round(o.v)+" facts"});
+  facts+=n;tick();
+}
+function log(k,msg,src,insight){
+  if(!msg)return;
+  const ul=$("#feed");if(evs===0)ul.innerHTML="";
+  evs++;$("#evCount").textContent=evs+" events";
+  const li=document.createElement("li");li.className="ev"+(insight?" insight":"");li.style.setProperty("--c",(AG[k]||AG.strat).c);
+  li.innerHTML=`<span class="who">${(AG[k]||AG.strat).n}</span><span class="t mono">+${((performance.now()-t0)/1000).toFixed(1)}s</span><span class="msg">${msg}</span>${src?`<span class="src mono">${esc(src)}</span>`:""}`;
+  ul.prepend(li);
+  gsap.from(li,{opacity:0,y:-10,filter:"blur(4px)",duration:.5,ease:"expo.out"});
+}
+function resetStage(){
+  if(es){es.close();es=null}
+  $("#edges").innerHTML="";$("#nodes").innerHTML="";for(const k in nodes)delete nodes[k];
+  facts=comps=evs=0;tick();$("#feed").innerHTML="";$("#evCount").textContent="";
+  gsap.set("#done",{opacity:0});$("#done").classList.remove("on");
+}
+
+/* one handler per event type; the same code renders live runs and replays */
+const ON={
+  agent_status:(e,p)=>{setAgent(e.agent,p.status);move(e.agent);log(e.agent,p.msg,p.src)},
+  competitor_found:(e,p)=>{addNode(p.company);move(e.agent,p.company.id);if(p.facts)addFacts(p.company.id,p.facts);if(!p.quiet)log(e.agent,p.msg,p.src)},
+  fact_added:(e,p)=>{setAgent("research");move("research",p.company_id);addFacts(p.company_id,p.count);log("research",p.msg,p.src)},
+  analysis:(e,p)=>{setAgent("analyst","Cross-checking facts");move("analyst",p.company_id);log("analyst",p.msg,p.src)},
+  memory_match:(e,p)=>{setAgent("analyst",p.status);move("analyst");log("analyst",p.msg,p.src,true)},
+  change_detected:(e,p)=>{setAgent("watch","Comparing with last snapshot");move("watch",p.company_id);log("watch",p.msg,p.src)},
+  no_change:(e,p)=>{setAgent("watch","Comparing with last snapshot");move("watch",p.company_id);log("watch",p.msg,p.src)},
+  insight:(e,p)=>{setAgent("strat","Finding the gap");move("strat");["scout","research","analyst","watch"].forEach(k=>move(k));log("strat",p.msg,p.src,true)},
+  run_done:(e,p)=>finish(p),
+  run_error:(e,p)=>{log("strat",esc(p.msg),p.src,true);finish(null)},
+};
+function listen(id,after){
+  es=new EventSource(`/api/research/${id}/events?after=${after||0}`);
+  es.onmessage=m=>{const e=JSON.parse(m.data);(ON[e.type]||(()=>{}))(e,e.payload||{})};
+  es.addEventListener("end",()=>{es.close();es=null});
+}
+function run(id,after,mode){
+  running=true;cur=id;$("#matchSlot").innerHTML="";
+  resetStage();stopIdle();
+  $("#hint").textContent="Closer to the center means closer to your idea. Click any competitor for its dossier.";
+  $("#go").disabled=true;$("#status").classList.add("live");$("#statusTxt").textContent="5 agents working";
+  t0=performance.now();timer=setInterval(()=>$("#cTime").textContent=((performance.now()-t0)/1000).toFixed(1)+"s",100);
+  listen(id,after);
+}
+function finish(p){
+  clearInterval(timer);running=false;$("#go").disabled=false;
+  $("#status").classList.remove("live");$("#statusTxt").textContent=p?`Watching ${comps} competitors`:"Hunt stopped";
+  document.querySelectorAll(".agent").forEach(a=>a.classList.remove("on"));
+  if(p){
+    $("#doneS").textContent=p.mode==="continue"
+      ?`· updated in ${p.secs}s by reusing ${p.reused} facts from memory`
+      :`· ${p.comps} competitors, ${p.facts} facts in ${p.secs}s, saved to your library`;
+    $("#doneA").href="#/r/"+cur;
+    $("#done").classList.add("on");gsap.fromTo("#done",{opacity:0,y:14},{opacity:1,y:0,duration:.6,ease:"expo.out"});
+  }
+  loadLib();
+  setTimeout(startIdle,600);
+}
+async function ask(q){
+  if(running)return;
+  q=q.trim();if(!q)return;
+  try{
+    const res=await api("/api/research",{method:"POST",body:{query:q}});
+    if(!res.match)return run(res.id,res.after,"fresh");
+    const m=res.match;
+    $("#matchSlot").innerHTML=`<div class="match" role="status">
+      <span class="mi"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>
+      <p>You researched <b>${esc(m.q)}</b> ${esc(m.when)}. <span>${m.comps} competitors, ${m.facts} facts in memory.</span></p>
+      <div class="acts"><button class="btn" id="mCont">Continue that research</button><button class="ghost" id="mFresh">Start fresh</button></div></div>`;
+    gsap.from(".match",{opacity:0,y:-8,duration:.4,ease:"expo.out"});
+    $("#mCont").onclick=async()=>{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"continue",parent_id:m.id}});run(r.id,r.after,"continue")};
+    $("#mFresh").onclick=async()=>{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"fresh"}});run(r.id,r.after,"fresh")};
+  }catch(err){log("strat",`Couldn't start: ${esc(err.message)}`,"",true)}
+}
+$("#form").addEventListener("submit",e=>{e.preventDefault();if(!$("#q").value.trim())$("#q").value=$(".sugg button").dataset.q;ask($("#q").value)});
+document.querySelectorAll(".sugg button").forEach(b=>b.onclick=()=>{$("#q").value=b.dataset.q;ask(b.dataset.q)});
+
+/* ---------------- library ---------------- */
+let LIB=[];
+function thumb(cs){
+  const cx=200,cy=85;
+  let s=`<svg viewBox="0 0 400 170" aria-hidden="true"><ellipse cx="${cx}" cy="${cy}" rx="150" ry="70" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/><ellipse cx="${cx}" cy="${cy}" rx="85" ry="40" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/>`;
+  const P=c=>{const r=(55+(1-c.sim)*190);const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r*1.15,cy-6+Math.sin(a)*r*.4]};
+  cs.forEach(c=>{const[x,y]=P(c);s+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#2a313a"/>`});
+  cs.forEach(c=>{const[x,y]=P(c);s+=`<circle cx="${x}" cy="${y}" r="6" fill="#12161b" stroke="#a4adb8" stroke-width="1.2"/><text x="${x}" y="${y+18}" fill="#808a96" font-size="10" text-anchor="middle" font-family="Instrument Sans">${esc(c.n)}</text>`});
+  return s+`<circle cx="${cx}" cy="${cy}" r="18" fill="#ffb547" opacity=".15"/><circle cx="${cx}" cy="${cy}" r="10" fill="#ffb547"/></svg>`;
+}
+async function loadLib(){
+  try{LIB=await api("/api/library")}catch{return}
+  $("#libCount").textContent=LIB.length;
+  $("#lib").innerHTML=LIB.length?LIB.map(r=>`<a class="res" href="#/r/${r.id}">
+    <div class="thumb">${thumb(r.thumb)}</div>
+    <div class="body">${r.status==="running"?`<span class="new-badge">Running</span>`:r.recorded?`<span class="tag" style="align-self:flex-start">Recorded</span>`:""}<h3>${esc(r.q)}</h3>
+    ${r.alerts?`<span class="alert"><i></i>${r.alerts} changes since your last visit</span>`:""}
+    <div class="meta"><span>${esc(r.when)}</span><span class="mono">${r.comps} competitors</span><span class="mono">${r.facts} facts</span></div></div></a>`).join("")
+    :`<p class="empty">No research yet. Run your first hunt from the dashboard.</p>`;
+  if(location.hash.startsWith("#/map"))renderMapSide();
+}
+
+/* ---------------- report ---------------- */
+const stars=n=>"★".repeat(Math.round(n||0))+"☆".repeat(5-Math.round(n||0));
+let repId=null;
+async function renderReport(id,keepTab){
+  repId=id;
+  let r;try{r=await getReport(id,true)}catch{location.hash="#/library";return}
+  const d=mkt(r),t=r.totals||{};
+  const tab=keepTab||"pos";
+  if(!d.gap){$("#rep").innerHTML=`<a class="back" href="#/library">← Research library</a><h1>${esc(r.q)}</h1><p class="empty">This research is ${esc(r.status)}. The report appears when the agents finish.</p>`;return}
+  $("#rep").innerHTML=`
+   <a class="back" href="#/library"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>Research library</a>
+   <div class="r-head"><div><h1>${esc(r.q)}</h1><p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
+     <div class="stats"><div><b class="mono">${r.C.length}</b><span>competitors</span></div><div><b class="mono">${r.C.reduce((a,c)=>a+c.facts,0)}</b><span>facts</span></div><div><b class="mono">${t.secs??"–"}s</b><span>hunt time</span></div></div></div>
+   <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
+     <div><h3>${esc(d.verdict[0])}</h3><p>${esc(d.verdict[1])}</p></div></div>
+   <div class="tabs" role="tablist">
+     <button role="tab" aria-selected="${tab==="pos"}" data-v="pos">Positioning</button>
+     <button role="tab" aria-selected="${tab==="cmp"}" data-v="cmp">Compare</button>
+     <button role="tab" aria-selected="${tab==="rev"}" data-v="rev">Reviews</button>
+   </div>
+   <div class="view ${tab==="pos"?"on":""}" id="v-pos"><div class="chart"><svg id="pos" viewBox="0 0 1000 520"></svg></div><p class="note">Every dot opens that competitor's dossier.</p></div>
+   <div class="view ${tab==="cmp"?"on":""}" id="v-cmp"><div class="tbl"><table><thead><tr><th>Competitor</th><th>${esc(d.locL)}</th><th>Prices</th><th>${esc(d.scaleL)}</th><th>Hiring</th><th>Biggest complaint</th><th>Last change</th></tr></thead><tbody>
+     ${d.C.map(c=>`<tr class="row" tabindex="0" data-id="${c.id}"><td><b>${esc(c.n)}</b></td><td>${esc(c.loc)}</td><td class="num">${c.plans.filter(p=>p[1]!=="0").map(p=>"€"+esc(p[1])).join(" · ")}</td><td class="num">${esc(c.scale)}</td><td>${esc(c.hiring)}</td><td>${esc(c.complaint)}</td><td><span class="chip" style="--c:${!c.change||c.change==="None"?"var(--ink-3)":"var(--watch)"}"><i></i>${esc(c.change||"None")}</span></td></tr>`).join("")}
+   </tbody></table></div></div>
+   <div class="view ${tab==="rev"?"on":""}" id="v-rev"><div class="reviews">
+     ${d.C.map(c=>`<div class="rv" tabindex="0" data-id="${c.id}"><div class="rv-top"><b>${esc(c.n)}</b><span class="stars" aria-label="${c.rating} out of 5">${stars(c.rating)} <span class="mono" style="color:var(--ink-2)">${c.rating||"–"}</span></span></div>
+       <span class="theme"><i></i>${esc(c.complaint)}</span>${(c.q||[]).map(x=>`<blockquote>“${esc(x)}”</blockquote>`).join("")}</div>`).join("")}
+   </div></div>
+   <div class="thread" id="thread"></div>
+   <div class="rchat">
+     <form class="search" id="rform">
+       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+       <input id="rq" placeholder="Ask about this market, or ask the agents to dig deeper" aria-label="Ask about this research">
+       <button class="btn" type="submit">Ask</button>
+     </form>
+     <div class="chips">${chipsFor(d).map(c=>`<button type="button">${esc(c)}</button>`).join("")}</div>
+   </div>`;
+  drawPos(d);
+  r.chat.forEach(m=>appendMsg(m.role==="user"?{u:m.body.u}:m.body,false));
+  $("#rform").onsubmit=e=>{e.preventDefault();const v=$("#rq").value.trim();if(v){$("#rq").value="";chat(id,v)}};
+  $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(id,b.textContent));
+  $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.v));
+  $("#rep").querySelectorAll("[data-id]").forEach(n=>{n.onclick=()=>openDossier(id,n.dataset.id);n.onkeydown=e=>e.key==="Enter"&&openDossier(id,n.dataset.id)});
+  if(!keepTab)gsap.from("#rep > *",{opacity:0,y:14,duration:.6,stagger:.05,ease:"expo.out"});
+}
+function drawPos(d){
+  const s=$("#pos"),L=110,R=960,T=40,B=460,x0=d.xMin||0,span=(d.xMax-x0)||1,X=p=>L+((p-x0)/span)*(R-L),Y=i=>B-i*(B-T);
+  el("line",{x1:L,y1:B,x2:R,y2:B,class:"axis"},s);el("line",{x1:L,y1:T,x2:L,y2:B,class:"axis"},s);
+  for(let i=0;i<=5;i++){const p=x0+span*i/5;el("text",{x:X(p),y:B+24,class:"axl","text-anchor":"middle"},s).textContent="€"+(+p.toFixed(1))}
+  el("text",{x:R,y:B+48,class:"axl","text-anchor":"end"},s).textContent=d.xL+" →";
+  el("text",{x:L-14,y:T+4,class:"axl","text-anchor":"end"},s).textContent=d.yTop;
+  el("text",{x:L-14,y:B,class:"axl","text-anchor":"end"},s).textContent=d.yBot;
+  const g=d.gap,gx=X(g.x0),gy=Y(g.y0);
+  el("rect",{x:gx,y:gy,width:Math.max(0,X(g.x1)-gx),height:Math.max(0,Y(g.y1)-gy),rx:14,class:"gap"},s);
+  el("text",{x:gx+14,y:Y(g.y1)-14,class:"gapl"},s).textContent=g.t;
+  d.C.forEach(c=>{const p=el("g",{class:"pt",transform:`translate(${X(c.price)} ${Y(c.y)})`,"data-id":c.id,tabindex:0,role:"button","aria-label":c.n},s);el("circle",{r:9},p);el("text",{x:14,y:5},p).textContent=c.n});
+  const you=el("g",{class:"pt you",transform:`translate(${X(d.you.price)} ${Y(d.you.y)})`},s);el("circle",{r:11},you);el("text",{x:18,y:5},you).textContent="You";
+  gsap.from(s.querySelectorAll(".pt"),{opacity:0,duration:.5,stagger:.05,ease:"expo.out",delay:.2});
+}
+function chipsFor(d){const a=(d.C[0]||{n:"them"}).n.split(" ")[0];return["Who has the best reviews?",`Dig deeper into ${a}'s prices`,"Who is cheapest?","Add another competitor: "]}
+function setTab(v){$("#rep").querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x.dataset.v===v));$("#rep").querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v))}
+function highlight(ids){if(!ids||!ids.length)return;setTab("pos");$("#pos").querySelectorAll(".pt").forEach(p=>p.classList.toggle("hl",ids.includes(p.dataset.id)));$("#pos").scrollIntoView({behavior:"smooth",block:"center"})}
+function appendMsg(m,anim=true){
+  const th=$("#thread");const div=document.createElement("div");
+  if(m.u!==undefined){div.className="msg-u";div.textContent=m.u}
+  else{div.className="msg-a";div.innerHTML=`${m.steps&&m.steps.length?`<ul class="steps">${m.steps.map(s=>`<li style="--c:${(AG[s[0]]||AG.analyst).c}"><i></i><span>${(AG[s[0]]||AG.analyst).n}: ${esc(s[1])}</span><span class="src mono">${esc(s[2]||"")}</span></li>`).join("")}</ul>`:""}<div class="ans">${m.a}</div>${m.cites&&m.cites.length?`<div class="cites">${m.cites.map(c=>`<span class="mono">${esc(c)}</span>`).join("")}</div>`:""}${m.upd?`<div class="upd">${esc(m.upd)}</div>`:""}`}
+  th.appendChild(div);if(anim)gsap.from(div,{opacity:0,y:10,duration:.45,ease:"expo.out"});
+}
+async function chat(id,text){
+  if(text.endsWith(": ")){$("#rq").value=text.replace("Add another competitor: ","Add ");$("#rq").focus();return}
+  appendMsg({u:text});
+  const think=document.createElement("div");think.className="msg-a";think.innerHTML=`<span class="typing" aria-label="Agents working"><i></i><i></i><i></i></span>`;$("#thread").appendChild(think);
+  think.scrollIntoView({behavior:"smooth",block:"end"});
+  let m;
+  try{m=await api(`/api/research/${id}/chat`,{method:"POST",body:{message:text}})}
+  catch(err){think.remove();appendMsg({a:`Something went wrong: ${esc(err.message)}`});return}
+  think.innerHTML=`<ul class="steps"></ul>`;
+  const ul=think.querySelector(".steps");
+  for(const s of m.steps){const li=document.createElement("li");li.style.setProperty("--c",(AG[s[0]]||AG.analyst).c);li.innerHTML=`<i></i><span>${(AG[s[0]]||AG.analyst).n}: ${esc(s[1])}</span><span class="src mono">${esc(s[2]||"")}</span>`;ul.appendChild(li);gsap.from(li,{opacity:0,x:-6,duration:.3});await new Promise(r=>setTimeout(r,450))}
+  think.remove();
+  if(m.refresh){await renderReport(id,"pos")}
+  else appendMsg(m);
+  highlight(m.highlight);
+}
+
+/* ---------------- dossier ---------------- */
+async function openDossier(rid,cid){
+  const r=reports[rid]||await getReport(rid).catch(()=>null);if(!r)return;
+  const d=mkt(r),c=d.C.find(x=>x.id===cid);if(!c)return;
+  document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"));
+  nodes[cid]&&nodes[cid].g.classList.add("sel");
+  $("#dIn").innerHTML=`
+    <div class="d-top"><div class="logo">${esc(c.n[0]||"?")}</div><div><h2>${esc(c.n)}</h2><p>${esc(c.loc)}${c.rating?` · ${c.rating}★`:""} · ${c.facts} facts</p></div>
+    <button class="x" aria-label="Close" onclick="closeD()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <p class="d-sum">${esc(c.sum)}</p>
+    ${c.plans.length?`<div class="d-sec"><h4>Prices</h4><div class="plans">${c.plans.map(p=>`<div class="plan"><b>${esc(p[0])}</b><div class="p mono">${esc(fmt(p[1]))}<small>${p[1]!=="0"&&d.unit?" "+esc(d.unit):""}</small></div></div>`).join("")}</div></div>`:""}
+    <div class="d-sec"><h4>What we found</h4><ul class="facts">${c.f.map(f=>`<li><span>${esc(f[0])}</span><a href="${/^https?:/.test(f[1])?esc(f[1]):"#"}" target="_blank" rel="noopener" class="mono">${esc(f[1].replace(/^https?:\/\//,""))}</a></li>`).join("")}</ul></div>
+    ${c.tl.length?`<div class="d-sec"><h4>Recent changes</h4><ul class="timeline">${c.tl.map(t=>`<li><span class="when mono">${esc(t[0])}</span>${esc(t[1])}</li>`).join("")}</ul></div>`:""}
+    ${(c.q||[]).length?`<div class="d-sec"><h4>What customers say</h4>${c.q.map(x=>`<blockquote>“${esc(x)}”</blockquote>`).join("")}</div>`:""}
+    ${c.beat.length?`<div class="d-sec"><h4>How to beat them</h4><div class="beat"><ol>${c.beat.map(b=>`<li>${esc(b)}</li>`).join("")}</ol></div></div>`:""}`;
+  $("#dossier").classList.add("open");
+  gsap.from("#dIn > *",{opacity:0,y:12,duration:.5,stagger:.04,ease:"expo.out",delay:.1});
+}
+function closeD(){$("#dossier").classList.remove("open");document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"))}
+document.addEventListener("keydown",e=>e.key==="Escape"&&closeD());
+
+/* ---------------- map ---------------- */
+let map=null,layer=null,mapSel=null;
+function initMap(){
+  if(map){map.invalidateSize();return}
+  map=L.map("map",{worldCopyJump:true}).setView([48.8566,2.3522],12);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+}
+function renderMapSide(){
+  $("#mres").innerHTML=LIB.map(r=>`<button type="button" data-id="${r.id}" aria-pressed="${mapSel===r.id}"><b>${esc(r.q)}</b><span>${esc(r.when)} · ${r.comps} competitors</span></button>`).join("");
+  $("#mres").querySelectorAll("button").forEach(b=>b.onclick=()=>showOnMap(b.dataset.id));
+}
+function popHtml(rid,c){const paid=c.plans.filter(p=>p[1]!=="0");return`<div class="pop"><h3>${esc(c.n)}</h3><div class="l">${esc(c.loc)}</div><dl><dt>Rating</dt><dd>${c.rating||"–"}★</dd><dt>Prices</dt><dd class="mono">${paid.map(p=>"€"+esc(p[1])).join(" · ")||"–"}</dd><dt>Weak spot</dt><dd>${esc(c.complaint)||"–"}</dd><dt>Last change</dt><dd>${esc(c.change)||"None"}</dd></dl><button class="btn" onclick="openDossier('${rid}','${c.id}')">Open dossier</button></div>`}
+async function showOnMap(id){
+  mapSel=id;renderMapSide();
+  const r=await getReport(id).catch(()=>null);if(!r)return;
+  const d=mkt(r);layer.clearLayers();$("#mempty").style.display="none";
+  const mk={},pts=[];
+  d.C.filter(c=>c.ll).forEach((c,i)=>{
+    const m=L.marker(c.ll,{icon:L.divIcon({className:"",html:`<div class="pin">${esc(c.n[0])}</div>`,iconSize:[34,34],iconAnchor:[17,17]}),title:c.n,riseOnHover:true}).bindPopup(popHtml(id,c),{maxWidth:280});
+    setTimeout(()=>{m.addTo(layer);const e=m.getElement();e&&gsap.from(e.firstChild,{scale:0,duration:.5,ease:"back.out(2)"})},150+i*90);
+    mk[c.id]=m;pts.push(c.ll);
+  });
+  if(d.you&&d.you.ll){L.marker(d.you.ll,{icon:L.divIcon({className:"",html:`<div class="pin you">YOU</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:1000}).bindPopup(`<div class="pop"><h3>Your planned spot</h3><div class="l">Inside the gap the Strategist found</div></div>`).addTo(layer);pts.push(d.you.ll)}
+  if(pts.length)map.flyToBounds(L.latLngBounds(pts).pad(.25),{duration:1.2,maxZoom:16});
+  else{$("#mempty").textContent="No addresses found for this research yet.";$("#mempty").style.display=""}
+  $("#mlist").innerHTML=d.C.map(c=>`<li><button type="button" data-id="${c.id}" ${c.ll?"":"disabled"}><span class="mi2">${esc(c.n[0])}</span><span><b>${esc(c.n)}</b><span class="loc">${c.ll?esc(c.loc):"No address found yet"}</span></span><span class="rt mono">${c.rating||"–"}★</span></button></li>`).join("");
+  $("#mlist").querySelectorAll("button[data-id]").forEach(b=>b.onclick=()=>{const m=mk[b.dataset.id];if(!m)return;map.flyTo(m.getLatLng(),Math.max(map.getZoom(),10),{duration:.9});setTimeout(()=>m.openPopup(),950)});
+}
+
+/* ---------------- router ---------------- */
+function route(){
+  closeD();
+  const h=location.hash||"#/";
+  const m=h.match(/^#\/r\/(.+)/);
+  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":"dash";
+  document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id==="p-"+page));
+  $("#nav-dash").setAttribute("aria-current",page==="dash"?"page":"false");
+  $("#nav-lib").setAttribute("aria-current",page==="lib"||page==="rep"?"page":"false");
+  $("#nav-map").setAttribute("aria-current",page==="map"?"page":"false");
+  if(page==="rep")renderReport(m[1]);
+  if(page==="lib")loadLib().then(()=>gsap.from(".res",{opacity:0,y:16,duration:.6,stagger:.06,ease:"expo.out"}));
+  if(page==="map"){initMap();loadLib()}
+  window.scrollTo(0,0);
+}
+window.addEventListener("hashchange",route);
+loadLib();route();

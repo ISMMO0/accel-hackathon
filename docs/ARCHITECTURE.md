@@ -1,6 +1,6 @@
 # Launch Spy — Architecture
 
-Status: design draft, 21 Oct 2026 (night before the hackathon). Decisions marked **[open]** need a yes from Ismail.
+Status: implemented in `backend/` (mock mode tested end to end on memory and Postgres stores), 22 Oct 2026.
 
 ## 1. Goals and constraints
 
@@ -47,7 +47,7 @@ POST /api/research {query}
   5. Done        status=done, totals, cost/latency recorded
 ```
 
-Steps 2–3 overlap: the Analyst starts on a competitor as soon as its researcher finishes, not after all eight.
+The Analyst runs once over all competitors after the researchers finish, so every company is placed on the same axes. Researchers each have their own timeout, so one slow site can't hold the others.
 
 **Time budget:** Scout ≤ 10 s, each Researcher ≤ 25 s (hard timeout, partial facts kept), Analyst/Strategist ≤ 15 s. Overall hard cap 90 s → whatever is done is shown, the rest flagged `incomplete`.
 
@@ -55,13 +55,15 @@ Steps 2–3 overlap: the Analyst starts on a competitor as soon as its researche
 
 ## 4. LLM usage
 
-| Job | Model tier | Output |
-|---|---|---|
-| Scout (pick competitors from search results) | mid (Sonnet) | JSON list via tool schema |
-| Page → facts extraction | small (Haiku) | JSON facts via tool schema |
-| Analyst (positioning, themes) | mid (Sonnet) | JSON via tool schema |
-| Strategist (verdict, how to win) | top (Opus) | JSON via tool schema |
-| Report chat | mid (Sonnet) with tools | text + citations |
+| Job | Model (env var) | Effort | Output |
+|---|---|---|---|
+| Scout (pick competitors from search results) | `MODEL_SCOUT` | medium | `ScoutResult` |
+| Page → facts extraction | `MODEL_EXTRACT` | low | `PageExtraction` |
+| Analyst (positioning, themes) | `MODEL_ANALYST` | medium | `Analysis` |
+| Strategist (verdict, how to win) | `MODEL_STRATEGIST` | high | `Strategy` |
+| Report chat | `MODEL_CHAT` | medium | text + tool steps |
+
+All default to `claude-opus-5-5`. Switching extraction to `claude-haiku-5-5` is a one-line `.env` change if speed or cost needs it. Server-side refusal fallbacks are enabled on every call.
 
 Rules:
 - **Structured output only** (tool/JSON schema validated with Pydantic). A response that fails validation is retried once, then the step degrades gracefully.
@@ -110,7 +112,7 @@ SSE stream `GET /api/research/{id}/events?after={last_id}`. Each message:
 
 Types: `run_started`, `memory_match`, `agent_status`, `search`, `competitor_found`, `page_fetched`, `fact_added`, `change_detected`, `insight`, `run_done`, `run_error`.
 
-The frontend renders the constellation, roster and feed **only from events**, so live runs, replays and recorded demos all use the same code path. Delivery: insert row → `pg_notify('events', research_id)` → SSE handler reads rows `id > last_id`. Fallback poll every 1 s if LISTEN is unavailable (some poolers drop it; use the direct Aiven connection for LISTEN).
+The frontend renders the constellation, roster and feed **only from events**, so live runs, replays and recorded demos all use the same code path. Delivery: insert row → wake in-process listeners (`bus.py`) → SSE handler reads rows `id > last_id`, with a 1 s re-read as a safety net. One app instance means no cross-process notify is needed; if we ever run several, switch the wake-up to Postgres `LISTEN/NOTIFY` on a direct (non-pooled) Aiven connection.
 
 ## 7. REST API
 
@@ -133,7 +135,7 @@ GET  /api/health                   which providers are live vs mock
 | search | Tavily (or Exa) | fixture search results |
 | fetch | Jina Reader → Firecrawl | fixture page texts |
 | browser | H Company API (max 3 concurrent) | fixture page texts, slower delay |
-| embed | **[open]** OpenAI text-embedding-3-small (1536) or local | hash-based pseudo-embedding |
+| embed | OpenAI text-embedding-3-small (1536) | hash-based pseudo-embedding (same dimension) |
 | geocode | Nominatim (free, 1 req/s, cached forever) | fixture coords |
 
 Each provider is chosen independently: paste one key tomorrow and only that provider goes live. `/api/health` and the UI's status pill show which are live.
