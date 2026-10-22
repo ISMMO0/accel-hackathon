@@ -565,7 +565,7 @@ function micButton(input,onDone){
     if(VOICE){  // Gradium: click to start, click again to stop and transcribe
       if(busy)return;
       if(stopWav){
-        const stop=stopWav;stopWav=null;busy=true;b.classList.remove("on");input.placeholder="Transcribing with Gradium…";
+        const stop=stopWav;stopWav=null;busy=true;b.classList.remove("on");input.placeholder="Transcribing…";
         try{
           const wav=await stop();
           const r=await fetch(`/api/transcribe?lang=${lang}`,{method:"POST",headers:{"Content-Type":"audio/wav"},body:wav});

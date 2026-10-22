@@ -244,6 +244,14 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   app stores, social media, delivery apps, press & blogs, competitor websites, other) with fact and page counts.
 - Growth chart shows "+N facts" per project and per round (tooltip).
 
+### Phase 3j: ElevenLabs voice, Planner + Upgrader in the roster ✅
+- `/api/transcribe` uses **ElevenLabs Scribe** first (`POST https://api.elevenlabs.io/v1/speech-to-text`, header
+  `xi-api-key`, multipart `file` + `model_id=scribe_v1`), Gradium as fallback. Key from `ELEVENLABS_API_KEY` (or
+  `ELEVENLABS`). Tested: French 1.8s, English 0.8s, both accurate.
+- Dashboard face (looks around; binoculars while hunting); roster lists 7 agents incl. Planner and Upgrader.
+- Full live check at 14:30: hunt 63s/$0.11 (first competitor 10.9s), auto business plan with map spot, chat from
+  memory 10.8s, MCP ok, all endpoints < 1s, offline smoke test passes.
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

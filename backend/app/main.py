@@ -169,14 +169,22 @@ async def library():
 
 @app.post("/api/transcribe")
 async def transcribe(request: Request, lang: str = "any"):
-    """Voice input: the browser posts a WAV recording, Gradium speech-to-text returns the text.
+    """Voice input: the browser posts a WAV recording; ElevenLabs Scribe (or Gradium) returns the text.
 
     The API key stays on the server. Response from Gradium is NDJSON; we join the "text" segments."""
-    if not settings.gradium_api_key:
+    if not (settings.elevenlabs_api_key or settings.gradium_api_key):
         raise HTTPException(503, "Voice transcription is not configured")
     audio = await request.body()
     if not audio or len(audio) > 15_000_000:
         raise HTTPException(400, "Send a WAV recording under 15 MB")
+    if settings.elevenlabs_api_key:  # ElevenLabs Scribe speech-to-text
+        r = await web.http().post("https://api.elevenlabs.io/v1/speech-to-text",
+                                  headers={"xi-api-key": settings.elevenlabs_api_key},
+                                  data={"model_id": "scribe_v1"}, files={"file": ("voice.wav", audio, "audio/wav")},
+                                  timeout=60)
+        if r.status_code != 200:
+            raise HTTPException(502, f"Transcription failed ({r.status_code})")
+        return {"text": (r.json().get("text") or "").strip()}
     lang = lang if lang in ("en", "fr", "de", "es", "pt") else "any"
     r = await web.http().post("https://api.gradium.ai/api/post/speech/asr",
                               params={"json_config": json.dumps({"language": lang})},
