@@ -82,11 +82,12 @@ class ClaudeLLM:
         for _ in range(2):  # one retry if the output fails validation
             t0 = time.perf_counter()
             async with self.sem:
+                # Server-side refusal fallbacks exist for Opus/Sonnet; Haiku has none.
+                fb = {} if "haiku" in model else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
                 resp = await self.client.beta.messages.create(
                     model=model,
                     max_tokens=16000,
-                    betas=["server-side-fallback-2026-07-01"],
-                    fallbacks="default",
+                    **fb,
                     system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                     messages=[{"role": "user", "content": user}],
                     output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
@@ -112,7 +113,7 @@ class ClaudeLLM:
         lines = "\n".join(f"- {r['title']} | {r['url']} | {r.get('content', '')[:300]}" for r in results)
         guides = "\n\n".join(f"Guide: {g['url']}\n{g['text'][:6000]}" for g in guides or [])
         return await self.structured(
-            agent="scout", model=settings.model_scout, effort="medium", research_id=research_id, out=ScoutResult,
+            agent="scout", model=settings.model_scout, effort=settings.effort_scout, research_id=research_id, out=ScoutResult,
             system=(
                 "You map competitive landscapes for founders. From web search results, pick the real, "
                 f"currently operating competitors of the user's business. Return at most {settings.max_competitors}, "
@@ -146,7 +147,7 @@ class ClaudeLLM:
             facts = "\n".join(f"  - [{f['kind']}] {f['text']} (source: {f['source']})" for f in c["facts"])
             blocks.append(f"{c['name']} ({c['domain']}):\n{facts or '  - no facts found'}")
         return await self.structured(
-            agent="analyst", model=settings.model_analyst, effort="medium", research_id=research_id, out=Analysis,
+            agent="analyst", model=settings.model_analyst, effort=settings.effort_analyst, research_id=research_id, out=Analysis,
             system=(
                 "You are a market analyst. Using ONLY the facts given, place each competitor on a 2D map. "
                 "Choose the x axis (usually entry price, with unit) and a y axis that splits this market in a "
@@ -158,7 +159,7 @@ class ClaudeLLM:
 
     async def strategize(self, query: str, analysis: Analysis, research_id: str) -> Strategy:
         return await self.structured(
-            agent="strategist", model=settings.model_strategist, effort="medium", research_id=research_id,
+            agent="strategist", model=settings.model_strategist, effort=settings.effort_strategist, research_id=research_id,
             out=Strategy,
             system=(
                 "You advise a founder. Find the most promising empty spot on this market map (the gap), place "

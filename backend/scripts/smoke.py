@@ -68,6 +68,11 @@ async def main():
             done = ev2[-1]["payload"]
             check(done.get("mode") == "continue" and done.get("reused", 0) > 0,
                   f"continue reused {done.get('reused')} facts in {done.get('secs')}s")
+            from app import bus
+            from app.store import get_store
+            await bus.flush()
+            stored = await get_store().events_after(r["id"], 0)
+            check(len(stored) == len(ev) + len(ev2), f"all {len(stored)} events persisted by the background writer")
             print("\nall checks passed")
 
 

@@ -109,6 +109,7 @@ async def _run_tool(rid, comps, name, args) -> dict:
         before = await store.count_facts([c["id"]])
         query = (await store.get_research(rid))["query"]
         await hunt._research_company(rid, query, c, 0)
+        await hunt.settle(rid)
         new = await store.count_facts([c["id"]]) - before
         facts = await store.facts_for_company(c["id"], limit=12)
         return {"steps": [["research", f"re-reading {c['name']}'s pages", "jina · H Company"]],
@@ -121,6 +122,7 @@ async def _run_tool(rid, comps, name, args) -> dict:
         await store.link_company(rid, comp["id"], 0.6, -40 + n * 47, n, {"sum": f"Added from chat: {args['name']}."})
         r = await store.get_research(rid)
         await hunt._research_company(rid, r["query"], comp, 0)
+        await hunt.settle(rid)
         facts = await store.facts_for_company(comp["id"], limit=12)
         return {"steps": [["scout", f"adding {args['name']}", comp["domain"]],
                           ["research", f"reading {args['name']}'s site", "jina · H Company"]],

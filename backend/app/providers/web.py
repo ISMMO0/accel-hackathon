@@ -152,12 +152,18 @@ async def fetch(url: str) -> tuple[str, str]:
 
 
 async def _keenable_fetch(url: str) -> str:
+    """Keenable's indexed copy first (fastest), then a live fetch for pages it hasn't indexed."""
     path = "/fetch" if settings.keenable_api_key else "/fetch/public"
-    async with _fetch_sem:
-        r = await http().get(KEENABLE + path, headers=_keenable_headers(),
-                             params={"url": url, "live": "true", "max_chars": settings.page_char_limit}, timeout=25)
-    r.raise_for_status()
-    return r.json().get("content", "")
+    for live in ("false", "true"):
+        try:
+            async with _fetch_sem:
+                r = await http().get(KEENABLE + path, headers=_keenable_headers(), timeout=10,
+                                     params={"url": url, "live": live, "max_chars": settings.page_char_limit})
+            if r.status_code == 200 and (text := r.json().get("content", "")):
+                return text
+        except httpx.HTTPError:
+            continue
+    return ""
 
 
 async def _jina(url: str) -> str:
@@ -165,7 +171,7 @@ async def _jina(url: str) -> str:
     if settings.jina_api_key:
         headers["Authorization"] = f"Bearer {settings.jina_api_key}"
     async with _fetch_sem:
-        r = await http().get(f"https://r.jina.ai/{url}", headers=headers, timeout=25)
+        r = await http().get(f"https://r.jina.ai/{url}", headers=headers, timeout=8)
     r.raise_for_status()
     return r.text
 
@@ -176,7 +182,7 @@ async def _firecrawl(url: str) -> str:
     async with _fetch_sem:
         r = await http().post("https://api.firecrawl.dev/v1/scrape",
                               headers={"Authorization": f"Bearer {settings.firecrawl_api_key}"},
-                              json={"url": url, "formats": ["markdown"]}, timeout=40)
+                              json={"url": url, "formats": ["markdown"]}, timeout=12)
     r.raise_for_status()
     return r.json().get("data", {}).get("markdown", "")
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import asyncpg
 
-from .memory import new_id
+from .memory import company_id, new_id
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 
@@ -28,9 +28,11 @@ class PgStore:
     async def init(self):
         async def setup(conn):
             await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+            await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
         # Aiven requires SSL (sslmode=require in the URL). Small pool: free plans allow few connections.
-        self.pool = await asyncpg.create_pool(self.url, min_size=1, max_size=5, init=setup, command_timeout=30)
+        # Aiven developer plan allows 15 connections; keep headroom for the console / Lightdash.
+        self.pool = await asyncpg.create_pool(self.url, min_size=2, max_size=10, init=setup, command_timeout=60)
         async with self.pool.acquire() as c:
             for f in sorted(MIGRATIONS.glob("*.sql")):
                 await c.execute(f.read_text())
@@ -84,11 +86,11 @@ class PgStore:
         return None
 
     # ---- companies ----
-    async def upsert_company(self, domain, name, location=""):
+    async def upsert_company(self, domain, name, location="", cid=None):
         return await self._one(
             "INSERT INTO companies (id, domain, name, location) VALUES ($1,$2,$3,$4) "
             "ON CONFLICT (domain) DO UPDATE SET domain=EXCLUDED.domain RETURNING id, domain, name, location, lat, lng",
-            new_id(), domain, name, location)
+            cid or company_id(domain), domain, name, location)
 
     async def update_company(self, cid, **fields):
         cols = list(fields)
@@ -158,6 +160,55 @@ class PgStore:
         return await self._one(
             "INSERT INTO events (research_id, agent, type, payload) VALUES ($1,$2,$3,$4) "
             "RETURNING id, research_id, agent, type, payload, created_at", research_id, agent, type, payload)
+
+    async def add_events(self, events):
+        async with self.pool.acquire() as c:
+            await c.executemany(
+                "INSERT INTO events (id, research_id, agent, type, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6) "
+                "ON CONFLICT (id) DO NOTHING",
+                [(e["id"], e["research_id"], e["agent"], e["type"], e["payload"], e["created_at"]) for e in events])
+
+    async def save_page(self, company_id, research_id, url, text, fetcher, facts):
+        """Snapshot + its facts in ONE round trip (the network to Aiven can be slow)."""
+        await self._exec(
+            "WITH s AS (INSERT INTO snapshots (id, company_id, url, content_hash, text, fetcher) "
+            "  VALUES ($1,$2,$3,$11,$4,$5) RETURNING id) "
+            "INSERT INTO facts (id, company_id, research_id, snapshot_id, kind, text, value, source) "
+            "SELECT f.id, $2, $6, s.id, f.kind, f.text, f.value, $3 FROM s, "
+            "unnest($7::text[], $8::text[], $9::text[], $10::text[]) AS f(id, kind, text, value) "
+            "ON CONFLICT DO NOTHING",
+            new_id(), company_id, url, text, fetcher, research_id,
+            [new_id() for _ in facts], [f["kind"] for f in facts], [f["text"] for f in facts],
+            [f["value"] for f in facts], hashlib.sha256(text.encode()).hexdigest())
+
+    async def report_facts(self, company_ids, per_company=8):
+        """{company_id: {"count": n, "latest": [facts...]}} in one query."""
+        rows = await self._all(
+            "SELECT company_id, kind, text, value, source, n FROM ("
+            "  SELECT company_id, kind, text, value, source, created_at, count(*) OVER w0 AS n, "
+            "         row_number() OVER (PARTITION BY company_id ORDER BY created_at DESC) AS rn "
+            "  FROM facts WHERE company_id = ANY($1::text[]) WINDOW w0 AS (PARTITION BY company_id)) x "
+            "WHERE rn <= $2 ORDER BY company_id, created_at", list(company_ids), per_company)
+        out = {cid: {"count": 0, "latest": []} for cid in company_ids}
+        for r in rows:
+            out[r["company_id"]]["count"] = r["n"]
+            out[r["company_id"]]["latest"].append(r)
+        return out
+
+    async def library_rows(self):
+        """Every research with competitor count, fact count, unseen alerts and thumbnail data: one query."""
+        return await self._all(
+            "SELECT r.id, r.query, r.status, r.is_recorded, r.started_at, r.finished_at, "
+            "  coalesce(json_agg(json_build_object('n', c.name, 'sim', rc.similarity, 'ang', rc.angle) "
+            "           ORDER BY rc.position) FILTER (WHERE c.id IS NOT NULL), '[]') AS thumb, "
+            "  count(DISTINCT c.id) AS comps, "
+            "  (SELECT count(*) FROM facts f WHERE f.company_id IN "
+            "     (SELECT company_id FROM research_companies WHERE research_id = r.id)) AS facts, "
+            "  (SELECT count(*) FROM alerts a WHERE a.created_at > r.seen_at AND a.company_id IN "
+            "     (SELECT company_id FROM research_companies WHERE research_id = r.id)) AS alerts "
+            "FROM researches r LEFT JOIN research_companies rc ON rc.research_id = r.id "
+            "LEFT JOIN companies c ON c.id = rc.company_id "
+            "GROUP BY r.id ORDER BY coalesce(r.finished_at, r.started_at) DESC")
 
     async def events_after(self, research_id, after_id):
         return await self._all("SELECT id, research_id, agent, type, payload, created_at FROM events "

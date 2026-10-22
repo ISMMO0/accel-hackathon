@@ -36,6 +36,7 @@ async def seed():
             if query in existing:
                 continue
             r = await store.create_research(query=query, embedding=await web.embed(query), is_recorded=True)
+            bus.new_research(r["id"])
             await hunt._fresh(r["id"], query)
             when = datetime.now(timezone.utc) - timedelta(days=days)
             await store.update_research(r["id"], finished_at=when, started_at=when, seen_at=when)
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
         hunt.spawn(watcher_loop())
     logging.info("Launch Spy ready · store=%s · live=%s", store.kind, settings.live())
     yield
+    await bus.flush()
     await store.close()
 
 
@@ -120,7 +122,7 @@ async def events(rid: str, request: Request, after: int = 0):
         nonlocal last
         idle = 0.0
         while not await request.is_disconnected():
-            rows = await store.events_after(rid, last)
+            rows = await bus.events_after(rid, last)
             for e in rows:
                 last = e["id"]
                 data = {k: e[k] for k in ("id", "agent", "type", "payload")}
