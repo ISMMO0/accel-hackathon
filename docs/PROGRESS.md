@@ -225,6 +225,15 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
 - Live example (ramen Paris 9e): bookable 36-seat shop near Trinité/Rue de Châteaudun, €13.50 bowl undercutting
   Gaijin €14 and Kodawari €14.50, €17 lunch set vs Ippudo €21.50+, open Mondays (Ukiyo closes Mondays).
 
+### Phase 3h: Connectors (MCP server) ✅
+- `backend/app/mcp.py`: MCP over streamable HTTP at `POST /mcp` (JSON-RPC 2.0: initialize, tools/list, tools/call,
+  ping; notifications → 202). Tools: list_projects, get_project, search_facts, ask_project, start_research,
+  enrich_project, business_plan. Tested with a JSON-RPC client (handshake, list, real calls).
+- **Connectors page** (`#/connectors`): copyable agent prompt + setup snippets for Claude Code
+  (`claude mcp add --transport http launch-spy <url>/mcp`), Codex (`~/.codex/config.toml`), Cursor
+  (`.cursor/mcp.json`), Claude/ChatGPT apps (custom connector; needs the public deployed URL). No auth on /mcp yet:
+  fine on localhost, add a token before exposing publicly.
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

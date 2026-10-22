@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import bus, views
+from .mcp import router as mcp_router
 from .config import settings
 from .pipeline import chat, hunt
 from .providers import web
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Launch Spy", lifespan=lifespan)
+app.include_router(mcp_router)  # MCP server at POST /mcp: use your projects from Claude, Codex, Cursor...
 
 
 class ResearchIn(BaseModel):

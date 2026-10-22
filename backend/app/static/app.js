@@ -540,18 +540,48 @@ function micButton(input,onDone){
 }
 (function(){const q=$("#q");q.dataset.ph=q.placeholder;const b=micButton(q,v=>ask(v));if(b)$("#go").before(b)})();
 
+/* ---------------- connectors (MCP) ---------------- */
+function renderConnectors(){
+  const url=location.origin+"/mcp",local=/localhost|127\.0\.0\.1/.test(location.host);
+  const fav=d=>`https://www.google.com/s2/favicons?sz=64&domain=${d}`;
+  const prompt=`You have access to my Launch Spy MCP server (${url}). It holds my competitive-research projects: competitors, sourced facts (prices, menus, reviews), market gaps and business plans, built by AI agents from live web data.
+1. Call list_projects to see my projects.
+2. Use get_project and search_facts to answer from the stored data, and cite the source URLs.
+3. If something is missing, use ask_project (it searches the web and saves what it learns) or enrich_project.
+4. For a new idea, use start_research, then get_project when it's done.`;
+  const cards=[
+    {n:"Claude Code",d:"claude.ai",sub:"Terminal agent",code:`claude mcp add --transport http launch-spy ${url}`},
+    {n:"Codex",d:"openai.com",sub:"~/.codex/config.toml",code:`[mcp_servers.launch-spy]\nurl = "${url}"`},
+    {n:"Cursor",d:"cursor.com",sub:".cursor/mcp.json",code:JSON.stringify({mcpServers:{"launch-spy":{url}}},null,2)},
+    {n:"Claude & ChatGPT apps",d:"chatgpt.com",sub:"Custom connector (needs a public URL)",code:`Settings → Connectors → Add custom connector\nURL: ${url}`},
+  ];
+  $("#con").innerHTML=`
+   <div class="lib-head"><div><h1>Connectors</h1><p>Connect your projects to your own AI agent over MCP. Claude, Codex, Cursor or ChatGPT can then read your research, search the facts, ask questions and launch new hunts.</p></div></div>
+   ${local?`<div class="warn">Running on <b>${esc(location.host)}</b>: agents on this computer (Claude Code, Codex, Cursor) can connect now. Claude.ai and ChatGPT need the deployed public URL.</div>`:""}
+   <div class="ev-sec" style="margin-top:20px"><h2>1. Copy the prompt for your agent</h2><div class="code" id="cPrompt">${esc(prompt)}<button class="copy" data-copy="cPrompt">Copy prompt</button></div></div>
+   <div class="ev-sec"><h2>2. Add the MCP server to your agent</h2><div class="cons">${cards.map((c,i)=>`<div class="con"><div class="con-top"><img src="${fav(c.d)}" alt=""><div><b>${esc(c.n)}</b><span>${esc(c.sub)}</span></div></div><div class="code" id="cc${i}">${esc(c.code)}<button class="copy" data-copy="cc${i}">Copy</button></div></div>`).join("")}</div></div>
+   <div class="ev-sec"><h2>Tools your agent gets</h2><div class="tools">${["list_projects","get_project","search_facts","ask_project","start_research","enrich_project","business_plan"].map(t=>`<span>${t}</span>`).join("")}</div>
+   <p class="note">MCP endpoint: <span class="mono">${esc(url)}</span> (streamable HTTP, JSON-RPC).</p></div>`;
+  $("#con").querySelectorAll(".copy").forEach(b=>b.onclick=async()=>{
+    const box=$("#"+b.dataset.copy).cloneNode(true);box.querySelector(".copy").remove();
+    try{await navigator.clipboard.writeText(box.textContent.trim());b.textContent="Copied";b.classList.add("done");setTimeout(()=>{b.textContent=b.dataset.copy==="cPrompt"?"Copy prompt":"Copy";b.classList.remove("done")},1500)}catch{b.textContent="Select & copy"}
+  });
+}
+
 /* ---------------- router ---------------- */
 function route(){
   closeD();
   const h=location.hash||"#/";
   const m=h.match(/^#\/r\/(.+)/);
-  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":h.startsWith("#/evidence")?"ev":"dash";
+  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":h.startsWith("#/evidence")?"ev":h.startsWith("#/connectors")?"con":"dash";
   document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id==="p-"+page));
   $("#nav-dash").setAttribute("aria-current",page==="dash"?"page":"false");
   $("#nav-lib").setAttribute("aria-current",page==="lib"||page==="rep"?"page":"false");
   $("#nav-map").setAttribute("aria-current",page==="map"?"page":"false");
   $("#nav-ev").setAttribute("aria-current",page==="ev"?"page":"false");
   if(page==="ev")renderEvidence();
+  $("#nav-con").setAttribute("aria-current",page==="con"?"page":"false");
+  if(page==="con")renderConnectors();
   if(page==="rep")renderReport(m[1]);
   if(page==="lib")loadLib().then(()=>gsap.from(".res",{opacity:0,y:16,duration:.6,stagger:.06,ease:"expo.out"}));
   if(page==="map"){initMap();loadLib()}
