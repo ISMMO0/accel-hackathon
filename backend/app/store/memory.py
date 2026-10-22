@@ -195,6 +195,14 @@ class MemoryStore:
     async def knowledge_rows(self):
         return list(getattr(self, "knowledge", []))
 
+    async def value_stats(self):
+        return {"projects": sum(1 for r in self.researches.values() if r["status"] == "done"),
+                "competitors": len(self.companies), "facts": len(self.facts),
+                "sources": len({f["source"] for f in self.facts}), "pages_read": len(self.snapshots),
+                "prices": sum(1 for f in self.facts if f["kind"] == "price"), "fresh_facts": len(self.facts),
+                "plans": sum(1 for r in self.researches.values() if "biz_plan" in r["market"]),
+                "spend": sum(r["cost_usd"] for r in self.llm), "avg_secs": 0}
+
     async def library_rows(self):
         out = []
         for r in await self.list_researches():
