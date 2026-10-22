@@ -41,7 +41,8 @@ async def report(rid: str) -> dict | None:
 
 
 async def library() -> list[dict]:
-    return [{"id": r["id"], "q": r["query"], "status": r["status"], "recorded": r["is_recorded"],
+    return [{"id": r["id"], "q": r["query"], "label": r.get("market_label") or "", "status": r["status"],
+             "recorded": r["is_recorded"],
              "when": ago(r["finished_at"] or r["started_at"]).capitalize(), "alerts": r["alerts"],
              "comps": r["comps"], "facts": r["facts"], "thumb": r["thumb"]}
             for r in await get_store().library_rows()]

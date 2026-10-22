@@ -107,6 +107,9 @@ async def create_research(body: ResearchIn):
     q = body.query.strip()
     if not q:
         raise HTTPException(400, "Describe a business or idea first.")
+    if body.mode == "check":  # the UI asks before every run: new project or an existing one?
+        m = await hunt.memory_match(q)
+        return {"match": {"id": m["research"]["id"], "score": m["score"]} if m else None}
     if body.mode is None and (m := await hunt.memory_match(q)):
         r = m["research"]
         comps = await get_store().research_companies(r["id"])
