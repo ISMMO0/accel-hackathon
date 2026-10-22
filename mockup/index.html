@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Spy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#0a0c0f; --bg-2:#0f1216; --panel:#12161b; --line:#1f252d; --line-2:#2a313a;
+  --ink:#e9ecef; --ink-2:#a4adb8; --ink-3:#808a96;
+  --amber:#ffb547; --amber-ink:#1a1206;
+  --scout:#7cc4ff; --research:#c79bff; --analyst:#5fe0b0; --strat:#ffb547; --watch:#ff7a7a;
+  --r:10px; --ease:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 "Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:var(--amber);color:var(--amber-ink)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:28px;padding:14px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(10,12,15,.92);backdrop-filter:blur(10px);z-index:20;height:63px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;font-size:17px;white-space:nowrap;text-decoration:none}
+.brand svg{color:var(--amber)}
+nav{display:flex;gap:4px}
+nav a{text-decoration:none;color:var(--ink-2);padding:7px 14px;border-radius:999px;font-size:14px;font-weight:500;transition:color .2s,background .2s;white-space:nowrap}
+nav a:hover{color:var(--ink)}
+nav a[aria-current=page]{background:var(--panel);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-2)}
+nav a .n{color:var(--ink-3);margin-left:6px;font-size:12px}
+.status{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;white-space:nowrap;margin-left:auto}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.status.live .pulse{background:var(--analyst);animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,224,176,.6)}100%{box-shadow:0 0 0 10px rgba(95,224,176,0)}}
+.tag{font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 8px}
+.page{display:none}.page.on{display:block}
+
+/* dashboard */
+.dash{display:grid;grid-template-columns:220px 1fr 360px;height:calc(100vh - 63px);min-height:600px}
+.roster{border-right:1px solid var(--line);padding:20px 16px;display:flex;flex-direction:column;gap:4px}
+.roster h3,.feed-head h3{font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:10px}
+.agent{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;transition:background .2s}
+.agent .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--c);opacity:.5;transition:opacity .2s,box-shadow .2s}
+.agent .nm{font-weight:600;font-size:14px}
+.agent .st{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent div{min-width:0}
+.agent.on{background:var(--bg-2)}
+.agent.on .dot{opacity:1;box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 25%,transparent)}
+.agent.on .st{color:var(--ink-2)}
+.counts{margin-top:auto;border-top:1px solid var(--line);padding-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.counts b{display:block;font-size:22px;font-weight:600;letter-spacing:-.02em}
+.counts span{font-size:12px;color:var(--ink-3)}
+
+.center{display:flex;flex-direction:column;min-width:0;min-height:0}
+.ask{padding:20px 24px 0;display:flex;flex-direction:column;gap:10px;z-index:2}
+.search{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line-2);border-radius:14px;padding:8px 8px 8px 16px;transition:border-color .2s,box-shadow .2s}
+.search:focus-within{border-color:var(--amber);box-shadow:0 8px 30px rgba(255,181,71,.08)}
+.search svg{color:var(--ink-3);flex:none}
+.search input{flex:1;background:none;border:0;color:var(--ink);font:inherit;font-size:16px;outline:none;min-width:0}
+.search input::placeholder{color:var(--ink-3)}
+.btn{background:var(--amber);color:var(--amber-ink);font-weight:600;padding:9px 18px;border-radius:10px;transition:transform .15s var(--ease),filter .15s;white-space:nowrap;text-decoration:none;display:inline-block}
+.btn:hover{filter:brightness(1.08)}.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.5;cursor:default}
+.sugg{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--ink-3)}
+.sugg button{border:1px solid var(--line-2);border-radius:999px;padding:4px 12px;color:var(--ink-2);font-size:13px;transition:border-color .2s,color .2s}
+.sugg button:hover{border-color:var(--ink-3);color:var(--ink)}
+
+.stage{position:relative;flex:1;min-height:0;overflow:hidden}
+.stage svg{width:100%;height:100%;display:block}
+.stage .hint{position:absolute;left:24px;bottom:16px;font-size:12px;color:var(--ink-3)}
+.node{cursor:pointer}
+.node .disc{fill:var(--panel);stroke:var(--line-2);stroke-width:1.5;transition:stroke .3s}
+.node:hover .disc,.node.sel .disc{stroke:var(--amber)}
+.node .lbl{fill:var(--ink);font:600 14px "Instrument Sans";text-anchor:middle}
+.node .sub{fill:var(--ink-3);font:11px "JetBrains Mono";text-anchor:middle}
+.node .ini{fill:var(--ink);font:700 15px "Instrument Sans";text-anchor:middle;dominant-baseline:central}
+.edge{stroke:var(--line-2);stroke-width:1;transition:stroke .3s}
+.edge.hot{stroke:var(--amber);stroke-opacity:.8}
+.core-t{fill:var(--amber-ink);font:700 13px "Instrument Sans";text-anchor:middle;dominant-baseline:central}
+.pipl{font:600 11px "Instrument Sans";fill:var(--ink-2);opacity:0;transition:opacity .3s}
+.idle .pipl{opacity:1}
+.done{position:absolute;left:50%;top:16px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line-2);border-radius:14px;padding:10px 10px 10px 18px;box-shadow:0 18px 40px rgba(0,0,0,.45);white-space:nowrap;opacity:0;pointer-events:none}
+.done.on{pointer-events:auto}
+.done p{font-size:14px}.done p span{color:var(--ink-3)}
+
+.feed{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.feed-head{padding:20px 20px 6px;display:flex;justify-content:space-between;align-items:baseline}
+.feed-list{list-style:none;overflow-y:auto;padding:4px 12px 20px;flex:1}
+.ev{padding:10px 8px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+.ev .who{font-weight:600;font-size:13px;color:var(--c)}
+.ev .t{font-size:11px;color:var(--ink-3);justify-self:end}
+.ev .msg{grid-column:1/-1;font-size:14px}
+.ev .src{grid-column:1/-1;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.insight{background:color-mix(in srgb,var(--amber) 8%,transparent);border-radius:8px;border-bottom-color:transparent;margin:4px 0}
+.empty{color:var(--ink-3);font-size:14px;padding:24px 8px;max-width:34ch}
+
+/* library */
+.wrap{max-width:1180px;margin:0 auto;padding:40px 24px 80px}
+.lib-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:28px;flex-wrap:wrap}
+h1{font-size:34px;letter-spacing:-.03em;line-height:1.1;text-wrap:balance}
+.lib-head p{color:var(--ink-2);margin-top:6px}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.res{display:flex;flex-direction:column;text-align:left;background:var(--bg-2);border:1px solid var(--line);border-radius:16px;overflow:hidden;transition:border-color .25s,transform .25s var(--ease);text-decoration:none}
+.res:hover{border-color:var(--line-2);transform:translateY(-2px)}
+.thumb{height:170px;border-bottom:1px solid var(--line);background:radial-gradient(ellipse at center,#141a21 0%,var(--bg-2) 75%)}
+.thumb svg{width:100%;height:100%;display:block}
+.res .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:10px;flex:1}
+.res h3{font-size:17px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+.meta{display:flex;gap:14px;font-size:12px;color:var(--ink-3);flex-wrap:wrap;margin-top:auto}
+.alert{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--watch)}
+.alert i{width:7px;height:7px;border-radius:50%;background:var(--watch)}
+.new-badge{font-size:11px;font-weight:600;color:var(--amber-ink);background:var(--amber);border-radius:999px;padding:1px 8px;align-self:flex-start}
+
+/* report */
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);text-decoration:none;font-size:14px;margin-bottom:20px}
+.back:hover{color:var(--ink)}
+.r-head{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;flex-wrap:wrap;margin-bottom:28px}
+.r-head p{color:var(--ink-2);margin-top:8px}
+.stats{display:flex;gap:28px}
+.stats b{display:block;font-size:24px;font-weight:600;letter-spacing:-.02em}
+.stats span{font-size:12px;color:var(--ink-3)}
+.verdict{background:var(--panel);border:1px solid var(--line-2);border-radius:16px;padding:20px 24px;margin-bottom:28px;display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start}
+.verdict .ic{width:36px;height:36px;border-radius:10px;background:var(--amber);color:var(--amber-ink);display:grid;place-items:center}
+.verdict h3{font-size:17px;margin-bottom:4px}
+.verdict p{color:var(--ink-2);max-width:75ch}
+.tabs{display:inline-flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px;margin-bottom:16px}
+.tabs button{padding:7px 16px;border-radius:999px;font-size:14px;color:var(--ink-2);transition:background .2s,color .2s}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+.view{display:none}.view.on{display:block}
+.chart{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:12px}
+.chart svg{width:100%;height:auto;display:block}
+.axis{stroke:var(--line-2)}
+.axl{fill:var(--ink-3);font:12px "Instrument Sans"}
+.pt{cursor:pointer}
+.pt circle{fill:var(--panel);stroke:var(--ink-2);stroke-width:1.5;transition:stroke .2s}
+.pt:hover circle{stroke:var(--amber)}
+.pt text{fill:var(--ink);font:600 13px "Instrument Sans"}
+.pt.you circle{fill:var(--amber);stroke:var(--amber)}
+.gap{fill:var(--amber);fill-opacity:.06;stroke:var(--amber);stroke-opacity:.5;stroke-dasharray:4 5}
+.gapl{fill:var(--amber);font:600 13px "Instrument Sans"}
+.tbl{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:var(--ink-2);font-size:13px;padding:12px 16px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+td{padding:13px 16px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+tr.row{cursor:pointer;transition:background .15s}tr.row:hover{background:var(--panel)}
+td.num{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);white-space:nowrap}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.reviews{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.rv{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:18px;cursor:pointer;transition:border-color .2s}
+.rv:hover{border-color:var(--line-2)}
+.rv-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.rv-top b{font-size:15px}
+.stars{color:var(--amber);font-size:13px}
+.theme{font-size:12px;color:var(--watch);margin-bottom:10px;display:inline-flex;gap:6px;align-items:center}
+.theme i{width:7px;height:7px;border-radius:50%;background:var(--watch)}
+blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2);padding-left:12px;margin-top:8px}
+.note{font-size:12px;color:var(--ink-3);margin-top:12px}
+
+/* dossier */
+.dossier{position:fixed;top:63px;right:0;bottom:0;width:min(460px,100vw);background:var(--bg-2);border-left:1px solid var(--line-2);z-index:1100;transform:translateX(100%);transition:transform .45s var(--ease);overflow-y:auto;box-shadow:-24px 0 48px rgba(0,0,0,.4)}
+.dossier.open{transform:none}
+.d-in{padding:24px}
+.d-top{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:18px;background:var(--panel);border:1px solid var(--line-2);flex:none}
+.d-top h2{font-size:24px;letter-spacing:-.02em;line-height:1.1}
+.d-top p{font-size:13px;color:var(--ink-3)}
+.x{margin-left:auto;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);flex:none}
+.x:hover{background:var(--panel);color:var(--ink)}
+.d-sum{color:var(--ink-2);margin:14px 0 22px}
+.d-sec{margin-bottom:24px}
+.d-sec h4{font-size:13px;color:var(--ink-2);font-weight:600;margin-bottom:10px}
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.plan{border:1px solid var(--line-2);border-radius:var(--r);padding:12px}
+.plan b{display:block;font-size:13px}
+.plan .p{font-size:20px;font-weight:600;letter-spacing:-.02em;margin-top:4px}
+.plan .p small{font-size:12px;color:var(--ink-3);font-weight:400}
+.facts{list-style:none;display:flex;flex-direction:column;gap:10px}
+.facts li{font-size:14px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline}
+.facts a{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underline-offset:3px}
+.facts a:hover{color:var(--amber)}
+.beat{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r);padding:16px}
+.beat ol{padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.timeline{list-style:none;border-left:1px solid var(--line-2);margin-left:4px;padding-left:16px;display:flex;flex-direction:column;gap:12px}
+.timeline li{font-size:14px;position:relative}
+.timeline li::before{content:"";position:absolute;left:-21px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--watch)}
+.timeline .when{font-size:11px;color:var(--ink-3);display:block}
+
+/* memory match on dashboard */
+.match{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line-2));border-radius:14px;padding:12px 12px 12px 16px;flex-wrap:wrap}
+.match .mi{width:32px;height:32px;border-radius:9px;background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber);display:grid;place-items:center;flex:none}
+.match p{flex:1;min-width:240px;font-size:14px}.match p span{color:var(--ink-2)}
+.match .acts{display:flex;gap:8px}
+.ghost{border:1px solid var(--line-2);border-radius:10px;padding:8px 14px;color:var(--ink-2);font-weight:500;transition:border-color .2s,color .2s;white-space:nowrap}
+.ghost:hover{border-color:var(--ink-3);color:var(--ink)}
+/* report chat */
+.thread{display:flex;flex-direction:column;gap:18px;margin-top:36px}
+.thread:empty{display:none}
+.msg-u{align-self:flex-end;background:var(--panel);border:1px solid var(--line-2);border-radius:14px 14px 4px 14px;padding:10px 14px;max-width:min(70ch,85%)}
+.msg-a{align-self:flex-start;max-width:min(78ch,100%);display:flex;flex-direction:column;gap:10px}
+.steps{list-style:none;display:flex;flex-direction:column;gap:6px}
+.steps li{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.steps li i{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.steps li .src{font-size:11px;color:var(--ink-3)}
+.ans{font-size:15px;line-height:1.6}
+.ans ul{padding-left:18px;margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.cites{display:flex;gap:6px;flex-wrap:wrap}
+.cites span{font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:2px 8px}
+.upd{font-size:12px;color:var(--analyst)}
+.rchat{position:sticky;bottom:0;margin-top:24px;z-index:5;padding:28px 0 16px;background:linear-gradient(to bottom,transparent,var(--bg) 32%)}
+.rchat .search{box-shadow:0 18px 40px rgba(0,0,0,.5)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chips button{border:1px solid var(--line-2);border-radius:999px;padding:4px 12px;color:var(--ink-2);font-size:13px;background:var(--bg);transition:border-color .2s,color .2s}
+.chips button:hover{border-color:var(--ink-3);color:var(--ink)}
+.pt.hl circle{stroke:var(--amber);stroke-width:3;fill:color-mix(in srgb,var(--amber) 25%,var(--panel))}
+.pt.hl text{fill:var(--amber)}
+.typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes blink{50%{opacity:.25}}
+
+/* map page */
+.mapw{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 63px)}
+.mside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.mside h2{font-size:13px;color:var(--ink-2);font-weight:600;padding:20px 20px 10px}
+.mres{display:flex;flex-direction:column;gap:4px;padding:0 12px}
+.mres button{text-align:left;padding:10px 12px;border-radius:10px;transition:background .2s;display:flex;flex-direction:column;gap:2px}
+.mres button:hover{background:var(--bg-2)}
+.mres button[aria-pressed=true]{background:var(--panel);box-shadow:inset 0 0 0 1px var(--line-2)}
+.mres b{font-size:14px;font-weight:600;line-height:1.35}
+.mres span{font-size:12px;color:var(--ink-3)}
+.mlist{list-style:none;overflow-y:auto;flex:1;padding:8px 12px 20px;border-top:1px solid var(--line);margin-top:12px}
+.mlist li button{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 10px;border-radius:8px;text-align:left;transition:background .15s}
+.mlist li button:hover{background:var(--bg-2)}
+.mlist .mi2{width:26px;height:26px;border-radius:8px;background:var(--panel);border:1px solid var(--line-2);display:grid;place-items:center;font-size:12px;font-weight:700}
+.mlist .loc{font-size:12px;color:var(--ink-3);display:block}
+.mlist .rt{font-size:12px;color:var(--ink-2)}
+#map{width:100%;height:100%;background:#0b0e12}
+.leaflet-tile-pane{filter:grayscale(1) invert(1) brightness(.78) contrast(1.15)}
+.leaflet-container{font-family:"Instrument Sans",system-ui,sans-serif}
+.leaflet-control-zoom a{background:var(--panel)!important;color:var(--ink)!important;border-color:var(--line-2)!important}
+.leaflet-control-attribution{background:rgba(10,12,15,.7)!important;color:var(--ink-3)!important}.leaflet-control-attribution a{color:var(--ink-2)!important}
+.pin{width:34px;height:34px;border-radius:50%;background:var(--panel);border:2px solid var(--ink-2);color:var(--ink);display:grid;place-items:center;font-weight:700;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.5);transition:border-color .2s,transform .2s}
+.pin:hover{border-color:var(--amber);transform:scale(1.1)}
+.pin.you{background:var(--amber);border-color:var(--amber);color:var(--amber-ink);font-size:10px}
+.leaflet-popup-content-wrapper{background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2);border-radius:14px;box-shadow:0 18px 40px rgba(0,0,0,.5)}
+.leaflet-popup-tip{background:var(--bg-2);border:1px solid var(--line-2)}
+.leaflet-popup-content{margin:14px 16px;font-size:14px;line-height:1.5;min-width:220px}
+.leaflet-container a.leaflet-popup-close-button{color:var(--ink-3)}
+.pop h3{font-size:16px;margin-bottom:2px}.pop .l{font-size:12px;color:var(--ink-3);margin-bottom:10px}
+.pop dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin-bottom:12px}.pop dt{color:var(--ink-3)}
+.pop .btn{padding:7px 14px;font-size:13px}
+.mempty{position:absolute;inset:auto 0 24px;margin:auto;width:max-content;max-width:90%;background:var(--panel);border:1px solid var(--line-2);border-radius:12px;padding:10px 16px;font-size:14px;color:var(--ink-2);z-index:500}
+@media (max-width:900px){.mapw{grid-template-columns:1fr;grid-template-rows:auto 60vh;height:auto}.mlist{max-height:220px}}
+
+@media (max-width:1050px){
+  .dash{grid-template-columns:1fr;height:auto}
+  .roster{display:none}
+  .stage{height:60vh;flex:none}
+  .feed{border-left:0;border-top:1px solid var(--line);max-height:420px}
+  .status .tag{display:none}
+}
+@media (max-width:640px){
+  .top{gap:12px;padding:12px 16px}.brand span{display:none}.status{display:none}
+  .wrap{padding:28px 16px 56px}.plans{grid-template-columns:1fr}.lib{grid-template-columns:1fr}
+  .stats{gap:18px}.done{white-space:normal;width:calc(100% - 32px)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#/">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+    <span>Launch Spy</span>
+  </a>
+  <nav>
+    <a href="#/" id="nav-dash">Dashboard</a>
+    <a href="#/library" id="nav-lib">Research library<span class="n mono" id="libCount"></span></a>
+    <a href="#/map" id="nav-map">Map</a>
+  </nav>
+  <div class="status" id="status"><span class="pulse"></span><span id="statusTxt">5 agents on standby</span><span class="tag">Mock data</span></div>
+</header>
+
+<!-- DASHBOARD -->
+<main class="page" id="p-dash">
+  <section class="dash">
+    <aside class="roster">
+      <h3>Agents</h3>
+      <div id="agents"></div>
+      <div class="counts">
+        <div><b class="mono" id="cComp">0</b><span>competitors</span></div>
+        <div><b class="mono" id="cFacts">0</b><span>facts</span></div>
+        <div><b class="mono" id="cSrc">0</b><span>sources</span></div>
+        <div><b class="mono" id="cTime">0.0s</b><span>elapsed</span></div>
+      </div>
+    </aside>
+
+    <div class="center">
+      <div class="ask">
+        <form class="search" id="form">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" placeholder="Describe your business or idea, e.g. “I want to open a coffee shop in Paris 17e”" aria-label="Describe your business or idea">
+          <button class="btn" id="go" type="submit">Find competitors</button>
+        </form>
+        <div id="matchSlot"></div>
+        <div class="sugg">Try:
+          <button type="button" data-q="I want to open a specialty coffee shop in Paris 17e">Coffee shop in Paris 17e</button>
+          <button type="button" data-q="A dating app for young professionals in Paris">Dating app in Paris</button>
+        </div>
+      </div>
+      <div class="stage">
+        <svg id="sky" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agents and competitors">
+          <defs><radialGradient id="glow"><stop offset="0" stop-color="#ffb547" stop-opacity=".32"/><stop offset="1" stop-color="#ffb547" stop-opacity="0"/></radialGradient></defs>
+          <g id="rings"></g><g id="edges"></g><g id="nodes"></g>
+          <g transform="translate(450 300)"><circle r="96" fill="url(#glow)"/><circle id="coreDisc" r="34" fill="#ffb547"/><text class="core-t">YOU</text></g>
+          <g id="pips" class="idle"></g>
+        </svg>
+        <div class="hint" id="hint">Your agents are on standby. Describe a business above to send them hunting.</div>
+        <div class="done" id="done"><p><b>Hunt complete</b> <span id="doneS"></span></p><a class="btn" id="doneA" href="#/library">Open report</a></div>
+      </div>
+    </div>
+
+    <aside class="feed">
+      <div class="feed-head"><h3>Live feed</h3><span class="mono" style="font-size:11px;color:var(--ink-3)" id="evCount"></span></div>
+      <ul class="feed-list" id="feed" aria-live="polite"><li class="empty">Nothing running. Every step your agents take will show up here, with its source.</li></ul>
+    </aside>
+  </section>
+</main>
+
+<!-- LIBRARY -->
+<main class="page" id="p-lib">
+  <div class="wrap">
+    <div class="lib-head">
+      <div><h1>Research library</h1><p>Every market you've mapped. The Watcher keeps checking each competitor and flags what changed.</p></div>
+      <a class="btn" href="#/">New research</a>
+    </div>
+    <div class="lib" id="lib"></div>
+  </div>
+</main>
+
+<!-- MAP -->
+<main class="page" id="p-map">
+  <div class="mapw">
+    <aside class="mside">
+      <h2>Show a research on the map</h2>
+      <div class="mres" id="mres"></div>
+      <ul class="mlist" id="mlist"></ul>
+    </aside>
+    <div style="position:relative"><div id="map" role="application" aria-label="Map of competitors"></div><div class="mempty" id="mempty">Pick a research on the left to see where its competitors are.</div></div>
+  </div>
+</main>
+
+<!-- REPORT -->
+<main class="page" id="p-rep">
+  <div class="wrap" id="rep"></div>
+</main>
+
+<aside class="dossier" id="dossier" aria-label="Competitor dossier"><div class="d-in" id="dIn"></div></aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const AG={
+  scout:{n:"Scout",c:"#7cc4ff",job:"Finds competitors"},
+  research:{n:"Researcher",c:"#c79bff",job:"Reads sites with H agents"},
+  analyst:{n:"Analyst",c:"#5fe0b0",job:"Queries data, checks facts"},
+  strat:{n:"Strategist",c:"#ffb547",job:"Works out how to win"},
+  watch:{n:"Watcher",c:"#ff7a7a",job:"Tracks changes over time"},
+};
+
+/* ---------- Mock datasets (illustrative only) ---------- */
+const SETS={
+ dating:{
+  title:"Dating app for young professionals in Paris",
+  unit:"/mo", locL:"HQ", scaleL:"Users",
+  xL:"Cheapest paid plan per month", xMax:50, yTop:"Serious", yBot:"Casual",
+  you:{price:15,y:.82},
+  gap:{x0:8,x1:19,y0:.95,y1:.65,t:"Empty spot: serious, under €20"},
+  verdict:["Serious dating under €20 is open.","Only Meetic is truly serious, and it costs €35 and skews 40+. Hinge is the one to beat: same audience, but it paywalls likes and just raised prices in France."],
+  plan:"Plan: free likes, €15 premium, in-person Paris events. Hinge is the one to beat.",
+  queries:["dating apps Paris","best dating app young professionals France","Hinge alternatives"],
+  C:[
+  {id:"hinge",ll:[40.7411,-73.9897],n:"Hinge",loc:"New York",sim:.92,ang:-60,price:24,y:.85,scale:"23M",hiring:"Paris, 4 roles",complaint:"Likes are paywalled",change:"Price +12%",rating:4.1,
+   sum:"Relationship-first app. Strongest with 25 to 35 year old urban professionals, which is your exact target.",
+   plans:[["Free","0"],["Hinge+","24"],["HingeX","45"]],
+   f:[["Prompt-based profiles get more conversations than photo-only ones","hinge.co/press"],["Opened a Paris office; 4 open roles in growth","careers.hinge.co"],["Top complaint: you can't see who liked you without paying","reddit.com/r/hingeapp"]],
+   beat:["Show likes for free, earn on events instead","Lean into in-person: Paris after-work meetups","Undercut HingeX with a €15 premium tier"],
+   tl:[["2 days ago","HingeX raised from €40 to €45 in France"],["9 days ago","Posted 'Country Manager, France'"]],
+   q:["Great people, but everything useful is behind a paywall.","Best app for something serious in Paris, if you pay."]},
+  {id:"happn",ll:[48.8686,2.3431],n:"happn",loc:"Paris",sim:.86,ang:120,price:15,y:.45,scale:"10M",hiring:"Paris, 2 roles",complaint:"Location feels creepy",change:"AI icebreakers",rating:3.8,
+   sum:"Paris-born app that matches people who crossed paths. Strong local brand, weaker on serious intent.",
+   plans:[["Free","0"],["Premium","15"],["Annual","9"]],
+   f:[["Founded in Paris in 2014","happn.com/about"],["Launched AI icebreakers last week","happn.com/blog"],["Privacy complaints about location sharing","reddit.com/r/france"]],
+   beat:["Same Paris love, without location tracking","Position as the serious happn"],
+   tl:[["6 days ago","Shipped AI icebreakers"]],
+   q:["Fun idea, but it knowing where I've been is weird.","Lots of matches, few real dates."]},
+  {id:"bumble",ll:[30.2672,-97.7431],n:"Bumble",loc:"Austin",sim:.78,ang:10,price:20,y:.6,scale:"50M",hiring:"Freeze",complaint:"Match quality dropped",change:"BFF relaunch",rating:3.6,
+   sum:"Women message first. Owns Fruitz in France. Shifting part of its effort to friendship.",
+   plans:[["Free","0"],["Boost","20"],["Premium","38"]],
+   f:[["Acquired Paris-based Fruitz in 2022","bumble.com/investors"],["No open roles in Europe","bumble.com/careers"],["Reviews mention fewer active users in Paris","app store reviews"]],
+   beat:["Target users leaving Bumble over match quality"],
+   tl:[["5 days ago","Relaunched BFF as a standalone app"]],
+   q:["Feels emptier than a year ago.","I like messaging first, but matches go nowhere."]},
+  {id:"fruitz",ll:[48.8707,2.3622],n:"Fruitz",loc:"Paris",sim:.7,ang:-160,price:10,y:.3,scale:"3M",hiring:"None",complaint:"Too casual",change:"Folded into Bumble",rating:3.9,
+   sum:"Playful Paris app where a fruit signals what you're looking for. Now part of Bumble.",
+   plans:[["Free","0"],["Premium","10"]],
+   f:[["Users pick a fruit to signal intent","fruitz.io"],["Product team folded into Bumble","bumble.com/investors"]],
+   beat:["Borrow the intent signal, apply it to serious dating"],
+   tl:[],q:["Cute concept, mostly flings.","Hasn't changed in ages."]},
+  {id:"meetic",ll:[48.8356,2.241],n:"Meetic",loc:"Paris",sim:.62,ang:165,price:35,y:.9,scale:"6M",hiring:"Paris, 1 role",complaint:"Feels dated",change:"None",rating:3.4,
+   sum:"The original French dating site. Serious intent, older audience, high price.",
+   plans:[["Free","0"],["Premium","35"],["6 months","20"]],
+   f:[["Average user age above 40, per its media kit","meetic.fr/presse"],["Rated 3.4 on the French App Store","apps.apple.com"]],
+   beat:["Same seriousness, built for 28-year-olds"],
+   tl:[],q:["Serious people, but the app looks like 2012.","Too expensive for what it is."]},
+  {id:"tinder",ll:[34.0522,-118.2437],n:"Tinder",loc:"Los Angeles",sim:.55,ang:60,price:20,y:.2,scale:"75M",hiring:"Remote, 6 roles",complaint:"Hookup culture",change:"Price test",rating:3.5,
+   sum:"Category leader by volume. Swipe-first, casual reputation, aggressive price testing.",
+   plans:[["Free","0"],["Plus","10"],["Gold","20"]],
+   f:[["Running a Gold price test in France","tinder.com"],["Top Gen Z churn reason: too casual","reddit.com/r/Tinder"]],
+   beat:["Don't fight on volume. Win on intent"],
+   tl:[["1 day ago","Gold shown at €20 instead of €18 for new users"]],
+   q:["Endless swiping, nothing serious.","Everyone's here, nobody's looking for the same thing."]},
+  {id:"feeld",ll:[51.5246,-0.0786],n:"Feeld",loc:"London",sim:.4,ang:-105,price:18,y:.35,scale:"2M",hiring:"London, 3 roles",complaint:"Niche",change:"None",rating:4.0,
+   sum:"Niche app for alternative relationships. Not a direct competitor.",
+   plans:[["Free","0"],["Majestic","18"]],
+   f:[["Rising in Paris app rankings","appfigures.com"]],
+   beat:["Ignore for now. Different audience"],tl:[],q:["Open-minded crowd.","Small user base outside big cities."]},
+ ]},
+ coffee:{
+  title:"Specialty coffee shop in Paris 17e",
+  unit:"", locL:"Street", scaleL:"Google rating",
+  xL:"Price of a flat white", xMin:2.5, xMax:7, yTop:"Stay & work", yBot:"Grab & go",
+  you:{price:4.5,y:.85,ll:[48.8862,2.3165]},
+  gap:{x0:3.6,x1:4.8,y0:.98,y1:.66,t:"Empty spot: work-friendly specialty"},
+  verdict:["Nobody near Batignolles serves good coffee to people who want to stay and work.","Maison Moka is the specialty leader but bans laptops on weekends and charges €5.80. Work cafés allow laptops but score low on coffee. 340 reviews ask for both."],
+  plan:"Plan: specialty coffee at €4.50, laptop zone with plugs, open from 7:30. Maison Moka is the one to beat.",
+  queries:["specialty coffee Paris 17","café laptop friendly Batignolles","coffee shop Ternes reviews"],
+  C:[
+  {id:"moka",ll:[48.8879,2.3197],n:"Maison Moka",loc:"Rue des Moines",sim:.9,ang:-50,price:5.8,y:.55,scale:"4.7 (1.2k)",hiring:"2 baristas",complaint:"No laptops on weekends",change:"Flat white +€0.30",rating:4.7,
+   sum:"The specialty reference in Batignolles. Great beans, queues on weekends, laptops banned Saturday and Sunday.",
+   plans:[["Espresso","2.80"],["Flat white","5.80"],["Pastry","3.90"]],
+   f:[["Laptop ban on weekends, posted on Instagram","instagram.com (bio)"],["Raised flat white from €5.50 to €5.80","menu page, snapshot diff"],["Hiring 2 baristas","indeed.fr"]],
+   beat:["Welcome laptops 7 days a week","Price the flat white at €4.50","Open at 7:30, 30 min earlier"],
+   tl:[["4 days ago","Flat white €5.50 → €5.80"],["3 weeks ago","Started weekend laptop ban"]],
+   q:["Best coffee in the 17th, but kicked out with my laptop.","Worth the queue. Not a place to work."]},
+  {id:"filtre",ll:[48.8868,2.3108],n:"Le Petit Filtre",loc:"Rue Legendre",sim:.82,ang:40,price:4.6,y:.35,scale:"4.5 (640)",hiring:"None",complaint:"Only 8 seats",change:"None",rating:4.5,
+   sum:"Tiny specialty bar, mostly takeaway. Loved for its filter coffee, almost no seating.",
+   plans:[["Espresso","2.40"],["Flat white","4.60"],["Batch brew","3.50"]],
+   f:[["8 seats, no plugs","google maps photos"],["Closes at 17:00","google maps"]],
+   beat:["Win their regulars who want to sit"],tl:[],
+   q:["Amazing filter, nowhere to sit.","Perfect for a quick stop."]},
+  {id:"kawa",ll:[48.8893,2.3236],n:"Kawa Club",loc:"Av. de Clichy",sim:.74,ang:150,price:4.9,y:.9,scale:"4.2 (2.1k)",hiring:"3 roles",complaint:"Coffee is average",change:"Co-working pass",rating:4.2,
+   sum:"Café plus co-working. Plenty of plugs and Wi-Fi, but reviews call the coffee average.",
+   plans:[["Espresso","2.50"],["Flat white","4.90"],["Day pass","15"]],
+   f:[["Launched a €15 co-working day pass","kawaclub.fr"],["31% of reviews mention 'average coffee'","google reviews · 412 sampled"]],
+   beat:["Be the work café with real specialty coffee"],
+   tl:[["2 days ago","Launched €15 day pass"]],
+   q:["Great to work, coffee is meh.","Lots of plugs, loud music."]},
+  {id:"chain",ll:[48.8798,2.2985],n:"Chain café Wagram",loc:"Av. de Wagram",sim:.58,ang:-140,price:5.4,y:.7,scale:"3.9 (3.4k)",hiring:"5 roles",complaint:"Crowded, generic",change:"Seasonal menu",rating:3.9,
+   sum:"International chain. Laptop-friendly and always open, but generic coffee and crowded afternoons.",
+   plans:[["Espresso","2.90"],["Flat white","5.40"],["Latte","5.20"]],
+   f:[["Open 7:00 to 21:00","store locator"],["Afternoon crowding in 40% of reviews","google reviews"]],
+   beat:["Quieter, better coffee, cheaper flat white"],tl:[],
+   q:["Always a seat in the morning, never after 2pm.","It's fine. It's a chain."]},
+  {id:"boul",ll:[48.879,2.2953],n:"Boulangerie Ternes",loc:"Rue Poncelet",sim:.45,ang:95,price:3.2,y:.12,scale:"4.4 (980)",hiring:"1 role",complaint:"Basic coffee",change:"None",rating:4.4,
+   sum:"Neighborhood bakery with cheap coffee to go. Not specialty, but captures the morning rush.",
+   plans:[["Espresso","1.60"],["Café crème","3.20"],["Croissant","1.40"]],
+   f:[["Morning rush 7:30 to 9:00","google popular times"]],
+   beat:["Partner for pastries instead of competing"],tl:[],
+   q:["Great croissants, coffee is just coffee.","Quick and cheap."]},
+  {id:"roast",ll:[48.8838,2.3027],n:"Roastery Pereire",loc:"Bd Pereire",sim:.66,ang:-100,price:6.2,y:.45,scale:"4.6 (520)",hiring:"None",complaint:"Expensive",change:"Open Sundays",rating:4.6,
+   sum:"Roaster with a small café counter. Top beans, premium prices, sells bags to take home.",
+   plans:[["Espresso","3.20"],["Flat white","6.20"],["250g beans","16"]],
+   f:[["Now open on Sundays","instagram.com"],["Sells beans wholesale to 6 cafés","roasterypereire.fr"]],
+   beat:["Buy beans from them instead of competing"],tl:[["1 week ago","Started opening on Sundays"]],
+   q:["The best beans in the area.","Pricey for a café stop."]},
+ ]},
+};
+
+/* ---------- Library state ---------- */
+let LIB=[
+  {id:"r2",set:"coffee",q:"I want to open a specialty coffee shop in Paris 17e",when:"Yesterday",alerts:2},
+  {id:"r1",set:"dating",q:"A dating app for young professionals in Paris",when:"3 days ago",alerts:3},
+];
+const totals=(s,r)=>{const d=SETS[s];const facts=d.C.reduce((a,c)=>a+c.f.length*5+3,0)+((r&&r.extra)||0);return{comps:d.C.length,facts,srcs:Math.round(facts/3)}};
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const NS="http://www.w3.org/2000/svg";
+const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const CX=450,CY=300;
+const posOf=(c,cx=CX,cy=CY,k=1)=>{const r=(90+(1-c.sim)*290)*k;const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r,cy+Math.sin(a)*r]};
+const fmt=v=>v==="0"?"Free":"€"+v;
+
+/* ---------- Dashboard ---------- */
+[120,215,310].forEach(r=>el("circle",{cx:CX,cy:CY,r,fill:"none",stroke:"#1a2027","stroke-dasharray":"2 6"},$("#rings")));
+$("#agents").innerHTML=Object.entries(AG).map(([k,a])=>`<div class="agent" id="ag-${k}" style="--c:${a.c}"><span class="dot"></span><div><div class="nm">${a.n}</div><div class="st">${a.job}</div></div></div>`).join("");
+
+const pips={};
+Object.entries(AG).forEach(([k,a],i)=>{
+  const g=el("g",{},$("#pips"));
+  el("circle",{r:13,fill:"none",stroke:a.c,"stroke-opacity":.3},g);
+  el("circle",{r:6.5,fill:a.c},g);
+  el("text",{class:"pipl",y:-20,"text-anchor":"middle"},g).textContent=a.n;
+  const ang=i/5*Math.PI*2; gsap.set(g,{x:CX+Math.cos(ang)*150,y:CY+Math.sin(ang)*100});
+  pips[k]=g;
+});
+
+// idle: each agent drifts between random spots in a loose orbit around YOU
+let idle=true;
+function wander(k){
+  if(!idle)return;
+  const a=Math.random()*Math.PI*2, r=85+Math.random()*115;
+  gsap.to(pips[k],{x:CX+Math.cos(a)*r*1.35,y:CY+Math.sin(a)*r*.85,duration:3+Math.random()*3,ease:"sine.inOut",onComplete:()=>setTimeout(()=>wander(k),Math.random()*900)});
+}
+function startIdle(){idle=true;$("#pips").classList.add("idle");Object.keys(pips).forEach((k,i)=>setTimeout(()=>wander(k),i*250))}
+function stopIdle(){idle=false;$("#pips").classList.remove("idle");Object.values(pips).forEach(g=>gsap.killTweensOf(g))}
+gsap.to("#coreDisc",{attr:{r:37},duration:2.2,repeat:-1,yoyo:true,ease:"sine.inOut"});
+startIdle();
+
+let facts=0,srcs=0,comps=0,evs=0,t0=0,timer=null,running=false,timeouts=[];
+const nodes={};
+function tick(){$("#cComp").textContent=comps;$("#cFacts").textContent=facts;$("#cSrc").textContent=srcs}
+function addNode(c){
+  const[x,y]=posOf(c);
+  const edge=el("line",{x1:CX,y1:CY,x2:CX,y2:CY,class:"edge"},$("#edges"));
+  const g=el("g",{class:"node",tabindex:0,role:"button","aria-label":c.n},$("#nodes"));
+  el("circle",{cx:x,cy:y,r:27,class:"disc"},g);
+  el("text",{x,y,class:"ini"},g).textContent=c.n[0].toUpperCase();
+  el("text",{x,y:y+48,class:"lbl"},g).textContent=c.n;
+  const sub=el("text",{x,y:y+64,class:"sub"},g);sub.textContent="0 facts";
+  const open=()=>openDossier(cur,c.id);
+  g.addEventListener("click",open);g.addEventListener("keydown",e=>e.key==="Enter"&&open());
+  nodes[c.id]={g,sub,edge,x,y,f:0};
+  gsap.from(g,{opacity:0,scale:0,svgOrigin:`${x} ${y}`,duration:.7,ease:"back.out(1.8)"});
+  gsap.to(edge,{attr:{x2:x,y2:y},duration:.6,ease:"expo.out"});
+  comps++;tick();
+}
+function move(k,id){
+  const t=id?nodes[id]:null;
+  const x=t?t.x+30:CX+(Math.random()-.5)*70, y=t?t.y-26:CY+(Math.random()-.5)*50;
+  gsap.to(pips[k],{x,y,duration:.9,ease:"expo.inOut",overwrite:true});
+  if(t){t.edge.classList.add("hot");setTimeout(()=>t.edge.classList.remove("hot"),1400)}
+}
+function setAgent(k,txt){
+  document.querySelectorAll(".agent").forEach(a=>a.classList.remove("on"));
+  const a=$("#ag-"+k);a.classList.add("on");a.querySelector(".st").textContent=txt;
+}
+function addFacts(id,n){
+  const nd=nodes[id];const o={v:nd.f};nd.f+=n;
+  gsap.to(o,{v:nd.f,duration:.8,onUpdate:()=>nd.sub.textContent=Math.round(o.v)+" facts"});
+  facts+=n;srcs+=Math.ceil(n/3);tick();
+}
+function log(k,msg,src,insight){
+  const ul=$("#feed");if(evs===0)ul.innerHTML="";
+  evs++;$("#evCount").textContent=evs+" events";
+  const li=document.createElement("li");li.className="ev"+(insight?" insight":"");li.style.setProperty("--c",AG[k].c);
+  li.innerHTML=`<span class="who">${AG[k].n}</span><span class="t mono">+${((performance.now()-t0)/1000).toFixed(1)}s</span><span class="msg">${msg}</span>${src?`<span class="src mono">${src}</span>`:""}`;
+  ul.prepend(li);
+  gsap.from(li,{opacity:0,y:-10,filter:"blur(4px)",duration:.5,ease:"expo.out"});
+}
+
+let cur="dating";
+const pickSet=q=>/caf|coffee|espresso|barista|17/i.test(q)?"coffee":"dating";
+function script(setKey){
+  const d=SETS[setKey],C=d.C,S=[];let T=.3;
+  const at=(dt,fn)=>{T+=dt;S.push([T,fn])};
+  at(0,()=>{setAgent("scout","Searching the web");move("scout");log("scout",`Running ${d.queries.length} searches in parallel`,d.queries.map(x=>"“"+x+"”").join(" · "))});
+  C.forEach(c=>at(.65,()=>{addNode(c);move("scout",c.id);log("scout",`Found <b>${c.n}</b> · ${c.loc}`,`similarity ${c.sim.toFixed(2)}`)}));
+  at(.5,()=>setAgent("research",`Reading ${C.length*3} pages`));
+  C.forEach((c,i)=>at(.75,()=>{move("research",c.id);addFacts(c.id,c.f.length*3);log("research",`${c.n}: ${c.f[0][0]}`,c.f[0][1]+(i%2?" · H Company browser agent":" · fetched just now"))}));
+  at(.4,()=>setAgent("analyst","Cross-checking facts"));
+  C.slice(0,3).forEach(c=>at(.7,()=>{move("analyst",c.id);addFacts(c.id,c.f.length*2+3);log("analyst",`${c.n}: ${c.rating}★, top complaint “${c.complaint.toLowerCase()}”`,"reviews clustered · postgres")}));
+  const w=C.find(c=>c.tl.length);
+  at(.6,()=>{setAgent("watch","Comparing with last snapshot");move("watch",w.id);log("watch",`Change detected at ${w.n}: ${w.tl[0][1]}`,"snapshot diff · "+w.tl[0][0])});
+  at(.9,()=>{setAgent("strat","Finding the gap");move("strat");["scout","research","analyst","watch"].forEach(k=>move(k));log("strat",`Gap found: ${d.verdict[0]}`,`based on ${facts} facts`,true)});
+  at(1,()=>{log("strat",d.plan,`${C.length} dossiers written`,true);finish(setKey)});
+  return S;
+}
+function resetStage(){
+  timeouts.forEach(clearTimeout);timeouts=[];
+  $("#edges").innerHTML="";$("#nodes").innerHTML="";for(const k in nodes)delete nodes[k];
+  facts=srcs=comps=evs=0;tick();$("#feed").innerHTML="";$("#evCount").textContent="";
+  gsap.set("#done",{opacity:0});$("#done").classList.remove("on");
+}
+let contFrom=null;
+function scriptCont(setKey,prev){
+  const d=SETS[setKey],C=d.C,S=[];let T=.3;const reused=totals(setKey,prev).facts;
+  const at=(dt,fn)=>{T+=dt;S.push([T,fn])};
+  at(0,()=>{setAgent("analyst","Loading memory");move("analyst");log("analyst",`Found your research from ${prev.when.toLowerCase()}. Reusing ${reused} facts from memory instead of starting over`,"pgvector similarity 0.94 · postgres",true)});
+  C.forEach(c=>at(.18,()=>{addNode(c);addFacts(c.id,c.f.length*5+3)}));
+  const changed=C.filter(c=>c.tl.length).slice(0,2),same=C.filter(c=>!c.tl.length).slice(0,2);
+  at(.4,()=>setAgent("watch","Checking what changed"));
+  same.forEach(c=>at(.55,()=>{move("watch",c.id);log("watch",`${c.n}: no change since last snapshot`,"snapshot diff · skipped re-reading 3 pages")}));
+  changed.forEach(c=>at(.7,()=>{move("watch",c.id);log("watch",`${c.n} changed: ${c.tl[0][1]}`,"snapshot diff · "+c.tl[0][0])}));
+  at(.6,()=>{setAgent("research","Refreshing changed pages only");move("research",changed[0].id);addFacts(changed[0].id,4);log("research",`Re-read ${changed[0].n}'s pages that changed`,"H Company browser agent · 1 session")});
+  at(.8,()=>{setAgent("strat","Updating the plan");move("strat");["research","analyst","watch"].forEach(k=>move(k));log("strat",`Plan still holds: ${d.plan.replace(/^Plan: /,"")}`,"2 dossiers updated",true)});
+  at(.7,()=>finish(setKey,prev,reused));
+  return S;
+}
+function run(q,prev){
+  if(running)return;running=true;contFrom=prev||null;$("#matchSlot").innerHTML="";
+  cur=pickSet(q);resetStage();stopIdle();
+  $("#hint").textContent="Closer to the center means closer to your idea. Click any competitor for its dossier.";
+  $("#go").disabled=true;$("#status").classList.add("live");$("#statusTxt").textContent="5 agents working";
+  t0=performance.now();timer=setInterval(()=>$("#cTime").textContent=((performance.now()-t0)/1000).toFixed(1)+"s",100);
+  (prev?scriptCont(cur,prev):script(cur)).forEach(([t,fn])=>timeouts.push(setTimeout(fn,t*1000)));
+}
+function finish(setKey,prev,reused){
+  clearInterval(timer);running=false;$("#go").disabled=false;
+  const secs=((performance.now()-t0)/1000).toFixed(1);
+  $("#status").classList.remove("live");$("#statusTxt").textContent=`Watching ${comps} competitors`;
+  document.querySelectorAll(".agent").forEach(a=>a.classList.remove("on"));
+  let id;
+  if(prev){
+    id=prev.id;prev.when="Just now";prev.alerts=0;prev.fresh="Updated";prev.extra=(prev.extra||0)+4;
+    LIB=[prev,...LIB.filter(x=>x!==prev)];
+    $("#doneS").textContent=`· updated in ${secs}s by reusing ${reused} facts. A fresh hunt takes about 15s.`;
+  }else{
+    id="r"+Date.now();
+    LIB.unshift({id,set:setKey,q:$("#q").value||SETS[setKey].title,when:"Just now",alerts:0,fresh:"New"});
+    $("#doneS").textContent=`· ${comps} competitors, ${facts} facts, saved to your library`;
+  }
+  renderLib();
+  $("#doneA").href="#/r/"+id;
+  $("#done").classList.add("on");gsap.fromTo("#done",{opacity:0,y:14},{opacity:1,y:0,duration:.6,ease:"expo.out"});
+  setTimeout(startIdle,600);
+}
+// before hunting, look for a similar past research (in the real app: pgvector similarity over past queries)
+function ask(q){
+  if(running)return;
+  const prev=LIB.find(x=>x.set===pickSet(q));
+  if(!prev){run(q);return}
+  const t=totals(prev.set,prev);
+  $("#matchSlot").innerHTML=`<div class="match" role="status">
+    <span class="mi"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>
+    <p>You researched <b>${prev.q}</b> ${prev.when.toLowerCase()}. <span>${t.comps} competitors, ${t.facts} facts in memory.</span></p>
+    <div class="acts"><button class="btn" id="mCont">Continue that research</button><button class="ghost" id="mFresh">Start fresh</button></div></div>`;
+  gsap.from(".match",{opacity:0,y:-8,duration:.4,ease:"expo.out"});
+  $("#mCont").onclick=()=>run(q,prev);
+  $("#mFresh").onclick=()=>run(q);
+}
+$("#form").addEventListener("submit",e=>{e.preventDefault();if(!$("#q").value.trim())$("#q").value=$(".sugg button").dataset.q;ask($("#q").value)});
+document.querySelectorAll(".sugg button").forEach(b=>b.onclick=()=>{$("#q").value=b.dataset.q;ask(b.dataset.q)});
+
+/* ---------- Library ---------- */
+function thumb(setKey){
+  const d=SETS[setKey],cx=200,cy=85;
+  let s=`<svg viewBox="0 0 400 170" aria-hidden="true"><ellipse cx="${cx}" cy="${cy}" rx="150" ry="70" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/><ellipse cx="${cx}" cy="${cy}" rx="85" ry="40" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/>`;
+  const P=c=>{const r=(55+(1-c.sim)*190);const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r*1.15,cy-6+Math.sin(a)*r*.4]};
+  d.C.forEach(c=>{const[x,y]=P(c);s+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#2a313a"/>`});
+  d.C.forEach(c=>{const[x,y]=P(c);s+=`<circle cx="${x}" cy="${y}" r="6" fill="#12161b" stroke="#a4adb8" stroke-width="1.2"/><text x="${x}" y="${y+18}" fill="#808a96" font-size="10" text-anchor="middle" font-family="Instrument Sans">${c.n}</text>`});
+  s+=`<circle cx="${cx}" cy="${cy}" r="18" fill="#ffb547" opacity=".15"/><circle cx="${cx}" cy="${cy}" r="10" fill="#ffb547"/></svg>`;
+  return s;
+}
+function renderLib(){
+  $("#libCount").textContent=LIB.length;
+  $("#lib").innerHTML=LIB.map(r=>{const t=totals(r.set,r);return`<a class="res" href="#/r/${r.id}">
+    <div class="thumb">${thumb(r.set)}</div>
+    <div class="body">${r.fresh?`<span class="new-badge">${r.fresh}</span>`:""}<h3>${r.q}</h3>
+    ${r.alerts?`<span class="alert"><i></i>${r.alerts} changes since your last visit</span>`:""}
+    <div class="meta"><span>${r.when}</span><span class="mono">${t.comps} competitors</span><span class="mono">${t.facts} facts</span></div></div></a>`}).join("");
+}
+renderLib();
+
+/* ---------- Report ---------- */
+const stars=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
+function renderReport(id){
+  const r=LIB.find(x=>x.id===id);if(!r){location.hash="#/library";return}
+  const d=SETS[r.set],t=totals(r.set,r);r.chat=r.chat||[];
+  $("#rep").innerHTML=`
+   <a class="back" href="#/library"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>Research library</a>
+   <div class="r-head"><div><h1>${r.q}</h1><p>${r.when} · watched daily by the Watcher</p></div>
+     <div class="stats"><div><b class="mono">${t.comps}</b><span>competitors</span></div><div><b class="mono">${t.facts}</b><span>facts</span></div><div><b class="mono">${t.srcs}</b><span>sources</span></div></div></div>
+   <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
+     <div><h3>${d.verdict[0]}</h3><p>${d.verdict[1]}</p></div></div>
+   <div class="tabs" role="tablist">
+     <button role="tab" aria-selected="true" data-v="pos">Positioning</button>
+     <button role="tab" aria-selected="false" data-v="cmp">Compare</button>
+     <button role="tab" aria-selected="false" data-v="rev">Reviews</button>
+   </div>
+   <div class="view on" id="v-pos"><div class="chart"><svg id="pos" viewBox="0 0 1000 520"></svg></div><p class="note">Every dot opens that competitor's dossier. Mock data for the design preview.</p></div>
+   <div class="view" id="v-cmp"><div class="tbl"><table><thead><tr><th>Competitor</th><th>${d.locL}</th><th>Prices</th><th>${d.scaleL}</th><th>Hiring</th><th>Biggest complaint</th><th>Last change</th></tr></thead><tbody>
+     ${d.C.map(c=>`<tr class="row" tabindex="0" data-id="${c.id}"><td><b>${c.n}</b></td><td>${c.loc}</td><td class="num">${c.plans.filter(p=>p[1]!=="0").map(p=>"€"+p[1]).join(" · ")}</td><td class="num">${c.scale}</td><td>${c.hiring}</td><td>${c.complaint}</td><td><span class="chip" style="--c:${c.change==="None"?"var(--ink-3)":"var(--watch)"}"><i></i>${c.change}</span></td></tr>`).join("")}
+   </tbody></table></div></div>
+   <div class="view" id="v-rev"><div class="reviews">
+     ${d.C.map(c=>`<div class="rv" tabindex="0" data-id="${c.id}"><div class="rv-top"><b>${c.n}</b><span class="stars" aria-label="${c.rating} out of 5">${stars(c.rating)} <span class="mono" style="color:var(--ink-2)">${c.rating}</span></span></div>
+       <span class="theme"><i></i>${c.complaint}</span>${c.q.map(x=>`<blockquote>“${x}”</blockquote>`).join("")}</div>`).join("")}
+   </div></div>
+   <div class="thread" id="thread"></div>
+   <div class="rchat">
+     <form class="search" id="rform">
+       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+       <input id="rq" placeholder="Ask about this market, or ask the agents to dig deeper" aria-label="Ask about this research">
+       <button class="btn" type="submit">Ask</button>
+     </form>
+     <div class="chips">${chipsFor(d).map(c=>`<button type="button">${c}</button>`).join("")}</div>
+   </div>`;
+  drawPos(d);
+  r.chat.forEach(m=>appendMsg(m,false));
+  $("#rform").onsubmit=e=>{e.preventDefault();const v=$("#rq").value.trim();if(v){$("#rq").value="";chat(r,v)}};
+  $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(r,b.textContent));
+  $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+    $("#rep").querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x===b));
+    $("#rep").querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id==="v-"+b.dataset.v));
+  });
+  $("#rep").querySelectorAll("[data-id]").forEach(n=>{n.onclick=()=>openDossier(r.set,n.dataset.id);n.onkeydown=e=>e.key==="Enter"&&openDossier(r.set,n.dataset.id)});
+  gsap.from("#rep > *",{opacity:0,y:14,duration:.6,stagger:.05,ease:"expo.out"});
+}
+function drawPos(d){
+  const s=$("#pos"),L=110,R=960,T=40,B=460,x0=d.xMin||0,X=p=>L+((p-x0)/(d.xMax-x0))*(R-L),Y=i=>B-i*(B-T);
+  el("line",{x1:L,y1:B,x2:R,y2:B,class:"axis"},s);el("line",{x1:L,y1:T,x2:L,y2:B,class:"axis"},s);
+  for(let i=0;i<=5;i++){const p=x0+(d.xMax-x0)*i/5;el("text",{x:X(p),y:B+24,class:"axl","text-anchor":"middle"},s).textContent="€"+(+p.toFixed(1))}
+  el("text",{x:R,y:B+48,class:"axl","text-anchor":"end"},s).textContent=d.xL+" →";
+  el("text",{x:L-14,y:T+4,class:"axl","text-anchor":"end"},s).textContent=d.yTop;
+  el("text",{x:L-14,y:B,class:"axl","text-anchor":"end"},s).textContent=d.yBot;
+  const g=d.gap,gx=X(g.x0),gy=Y(g.y0);
+  el("rect",{x:gx,y:gy,width:X(g.x1)-gx,height:Y(g.y1)-gy,rx:14,class:"gap"},s);
+  el("text",{x:gx+14,y:Y(g.y1)-14,class:"gapl"},s).textContent=g.t;
+  d.C.forEach(c=>{const p=el("g",{class:"pt",transform:`translate(${X(c.price)} ${Y(c.y)})`,"data-id":c.id,tabindex:0,role:"button","aria-label":c.n},s);el("circle",{r:9},p);el("text",{x:14,y:5},p).textContent=c.n});
+  const you=el("g",{class:"pt you",transform:`translate(${X(d.you.price)} ${Y(d.you.y)})`},s);el("circle",{r:11},you);el("text",{x:18,y:5},you).textContent="You";
+  gsap.from(s.querySelectorAll(".pt"),{opacity:0,duration:.5,stagger:.05,ease:"expo.out",delay:.2});
+}
+
+/* ---------- Report chat (scripted for the mockup) ---------- */
+function chipsFor(d){const a=d.C[0].n.split(" ")[0];return d===SETS.coffee?["Which café has the best reviews?",`Dig deeper into ${a}'s prices`,"Add Café Lomi to this market","Who is cheapest?"]:["Which app has the best reviews?",`Dig deeper into ${a}'s pricing`,"Add Raya to this market","Who is cheapest?"]}
+function setTab(v){$("#rep").querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x.dataset.v===v));$("#rep").querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v))}
+function highlight(ids){setTab("pos");$("#pos").querySelectorAll(".pt").forEach(p=>p.classList.toggle("hl",ids.includes(p.dataset.id)));$("#pos").scrollIntoView({behavior:"smooth",block:"center"})}
+function appendMsg(m,anim=true){
+  const th=$("#thread");const div=document.createElement("div");
+  if(m.u){div.className="msg-u";div.textContent=m.u}
+  else{div.className="msg-a";div.innerHTML=`${m.steps&&m.steps.length?`<ul class="steps">${m.steps.map(s=>`<li style="--c:${AG[s[0]].c}"><i></i><span>${AG[s[0]].n}: ${s[1]}</span><span class="src mono">${s[2]||""}</span></li>`).join("")}</ul>`:""}<div class="ans">${m.a}</div>${m.cites?`<div class="cites">${m.cites.map(c=>`<span class="mono">${c}</span>`).join("")}</div>`:""}${m.upd?`<div class="upd">${m.upd}</div>`:""}`}
+  th.appendChild(div);if(anim)gsap.from(div,{opacity:0,y:10,duration:.45,ease:"expo.out"});
+  return div;
+}
+function chat(r,text){
+  const d=SETS[r.set],low=text.toLowerCase();
+  const um={u:text};r.chat.push(um);appendMsg(um);
+  const think=document.createElement("div");think.className="msg-a";think.innerHTML=`<ul class="steps"></ul><span class="typing" aria-label="Agents working"><i></i><i></i><i></i></span>`;$("#thread").appendChild(think);
+  think.scrollIntoView({behavior:"smooth",block:"end"});
+  const comp=d.C.find(c=>low.includes(c.n.toLowerCase().split(" ")[0])||low.includes(c.n.toLowerCase()));
+  let m;
+  if(/^add |add (.+) to/.test(low)){
+    const name=text.replace(/^add\s+/i,"").replace(/\s+to this market.*$/i,"").trim();
+    const nc={id:"x"+Date.now(),n:name,loc:"Paris",sim:.6,ang:Math.round(Math.random()*360),price:d===SETS.coffee?5.1:28,y:.62,scale:"New",hiring:"Unknown",complaint:"Few reviews yet",change:"Added",rating:4.3,
+      sum:`${name} was added on request. The Scout found its site and the Researcher read 4 pages.`,plans:d===SETS.coffee?[["Espresso","2.70"],["Flat white","5.10"]]:[["Free","0"],["Raya+","28"]],
+      f:[[`Found ${name}'s official site and pricing`,"via search"],["Positioned close to your idea","analyst"]],beat:["Watch for now. Too early to tell"],tl:[],q:["Too new for a clear pattern."]};
+    m={steps:[["scout",`searching for ${name}`,"tavily"],["research",`reading ${name}'s site and pricing`,"H Company · 1 session"],["analyst","placing it on the chart","postgres"]],
+      a:`Added <b>${name}</b> to this market. It lands between the top competitors on price and intent, so it is a real competitor but not a threat to your gap yet.`,upd:`+1 competitor, +9 facts saved to this research`,act:()=>{d.C.push(nc);r.extra=(r.extra||0)+9;const keep=r.chat;renderReport(r.id);highlight([nc.id])}};
+  }else if(comp&&/deeper|dig|pric|more|update|check/.test(low)){
+    const paid=comp.plans.filter(p=>p[1]!=="0");
+    m={steps:[["research",`re-opening ${comp.n}'s pricing page`,"H Company · 1 session"],["watch","comparing with the last snapshot","snapshot diff"],["analyst","checking against reviews","412 reviews"]],
+      a:`<b>${comp.n}</b> today: ${paid.map(p=>`${p[0]} €${p[1]}`).join(", ")}.${comp.tl.length?` Latest change: ${comp.tl[0][1]} (${comp.tl[0][0]}).`:" No price change since the last snapshot."} Customers mostly complain that ${comp.complaint.toLowerCase()}, which is your opening.`,
+      cites:[comp.f[0][1],"pricing page · fetched just now"],upd:"+5 facts saved to this research",act:()=>{r.extra=(r.extra||0)+5;highlight([comp.id]);$(".r-head .stats div:nth-child(2) b").textContent=totals(r.set,r).facts}};
+  }else if(/review|rated|best|complain|love/.test(low)){
+    const top=[...d.C].sort((a,b)=>b.rating-a.rating).slice(0,3);
+    m={steps:[["analyst","ranking competitors by rating","postgres · reviews table"]],
+      a:`Best rated in this market:<ul>${top.map(c=>`<li><b>${c.n}</b> ${c.rating}★, but people say “${c.q[0]}”</li>`).join("")}</ul>`,
+      cites:top.map(c=>c.n+" reviews"),act:()=>highlight(top.map(c=>c.id))};
+  }else if(/cheap|price|expensive|cost/.test(low)){
+    const by=[...d.C].sort((a,b)=>a.price-b.price);
+    m={steps:[["analyst","sorting by price","postgres · prices table"]],
+      a:`Cheapest is <b>${by[0].n}</b> (€${by[0].price}), most expensive is <b>${by.at(-1).n}</b> (€${by.at(-1).price}). Your planned price of €${d.you.price} sits inside the empty spot.`,
+      cites:[by[0].n+" pricing",by.at(-1).n+" pricing"],act:()=>highlight([by[0].id,by.at(-1).id])};
+  }else{
+    const top=[...d.C].sort((a,b)=>b.sim-a.sim).slice(0,2);
+    m={steps:[["analyst","searching this research's facts","pgvector · 6 matches"]],
+      a:`From this research: ${d.verdict[1]} The two closest competitors are <b>${top[0].n}</b> and <b>${top[1].n}</b>.`,cites:top.map(c=>c.f[0][1]),act:()=>highlight(top.map(c=>c.id))};
+  }
+  const ul=think.querySelector(".steps");
+  m.steps.forEach((s,i)=>setTimeout(()=>{const li=document.createElement("li");li.style.setProperty("--c",AG[s[0]].c);li.innerHTML=`<i></i><span>${AG[s[0]].n}: ${s[1]}</span><span class="src mono">${s[2]}</span>`;ul.appendChild(li);gsap.from(li,{opacity:0,x:-6,duration:.3})},300+i*700));
+  setTimeout(()=>{think.remove();const saved={steps:m.steps,a:m.a,cites:m.cites,upd:m.upd};r.chat.push(saved);appendMsg(saved);m.act&&m.act()},400+m.steps.length*700+300);
+}
+
+/* ---------- Dossier ---------- */
+function openDossier(setKey,id){
+  const d=SETS[setKey],c=d.C.find(x=>x.id===id);
+  document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"));
+  nodes[id]&&nodes[id].g.classList.add("sel");
+  $("#dIn").innerHTML=`
+    <div class="d-top"><div class="logo">${c.n[0]}</div><div><h2>${c.n}</h2><p>${c.loc} · ${c.rating}★</p></div>
+    <button class="x" aria-label="Close" onclick="closeD()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <p class="d-sum">${c.sum}</p>
+    <div class="d-sec"><h4>Prices</h4><div class="plans">${c.plans.map(p=>`<div class="plan"><b>${p[0]}</b><div class="p mono">${fmt(p[1])}<small>${p[1]!=="0"&&d.unit?" "+d.unit:""}</small></div></div>`).join("")}</div></div>
+    <div class="d-sec"><h4>What we found</h4><ul class="facts">${c.f.map(f=>`<li><span>${f[0]}</span><a href="#" onclick="return false" class="mono">${f[1]}</a></li>`).join("")}</ul></div>
+    ${c.tl.length?`<div class="d-sec"><h4>Recent changes</h4><ul class="timeline">${c.tl.map(t=>`<li><span class="when mono">${t[0]}</span>${t[1]}</li>`).join("")}</ul></div>`:""}
+    <div class="d-sec"><h4>What customers say</h4>${c.q.map(x=>`<blockquote>“${x}”</blockquote>`).join("")}</div>
+    <div class="d-sec"><h4>How to beat them</h4><div class="beat"><ol>${c.beat.map(b=>`<li>${b}</li>`).join("")}</ol></div></div>
+    <p class="note">Mock data for the design preview.</p>`;
+  $("#dossier").classList.add("open");
+  gsap.from("#dIn > *",{opacity:0,y:12,duration:.5,stagger:.04,ease:"expo.out",delay:.1});
+}
+function closeD(){$("#dossier").classList.remove("open");document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"))}
+document.addEventListener("keydown",e=>e.key==="Escape"&&closeD());
+
+/* ---------- Map ---------- */
+let map=null,layer=null,mapSel=null;
+function initMap(){
+  if(map){map.invalidateSize();return}
+  map=L.map("map",{zoomControl:true,worldCopyJump:true}).setView([48.8566,2.3522],12);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+}
+function renderMapSide(){
+  $("#mres").innerHTML=LIB.map(r=>`<button type="button" data-id="${r.id}" aria-pressed="${mapSel===r.id}"><b>${r.q}</b><span>${r.when} · ${SETS[r.set].C.length} competitors</span></button>`).join("");
+  $("#mres").querySelectorAll("button").forEach(b=>b.onclick=()=>showOnMap(b.dataset.id));
+}
+function popHtml(set,c){const paid=c.plans.filter(p=>p[1]!=="0");return`<div class="pop"><h3>${c.n}</h3><div class="l">${c.loc}</div><dl><dt>Rating</dt><dd>${c.rating}★</dd><dt>Prices</dt><dd class="mono">${paid.map(p=>"€"+p[1]).join(" · ")}</dd><dt>Weak spot</dt><dd>${c.complaint}</dd><dt>Last change</dt><dd>${c.change}</dd></dl><button class="btn" onclick="openDossier('${set}','${c.id}')">Open dossier</button></div>`}
+function showOnMap(id){
+  const r=LIB.find(x=>x.id===id);if(!r)return;mapSel=id;renderMapSide();
+  const d=SETS[r.set];layer.clearLayers();$("#mempty").style.display="none";
+  const mk={},pts=[];
+  d.C.filter(c=>c.ll).forEach((c,i)=>{
+    const m=L.marker(c.ll,{icon:L.divIcon({className:"",html:`<div class="pin">${c.n[0]}</div>`,iconSize:[34,34],iconAnchor:[17,17]}),title:c.n,riseOnHover:true}).bindPopup(popHtml(r.set,c),{maxWidth:280});
+    setTimeout(()=>{m.addTo(layer);const e=m.getElement();e&&gsap.from(e.firstChild,{scale:0,duration:.5,ease:"back.out(2)"})},150+i*90);
+    mk[c.id]=m;pts.push(c.ll);
+  });
+  if(d.you.ll){L.marker(d.you.ll,{icon:L.divIcon({className:"",html:`<div class="pin you">YOU</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:1000}).bindPopup(`<div class="pop"><h3>Your planned spot</h3><div class="l">Inside the gap the Strategist found</div></div>`).addTo(layer);pts.push(d.you.ll)}
+  map.flyToBounds(L.latLngBounds(pts).pad(.25),{duration:1.2,maxZoom:16});
+  $("#mlist").innerHTML=d.C.map(c=>`<li><button type="button" data-id="${c.id}" ${c.ll?"":"disabled"}><span class="mi2">${c.n[0]}</span><span><b>${c.n}</b><span class="loc">${c.ll?c.loc:"No address found yet"}</span></span><span class="rt mono">${c.rating}★</span></button></li>`).join("");
+  $("#mlist").querySelectorAll("button[data-id]").forEach(b=>b.onclick=()=>{const m=mk[b.dataset.id];if(!m)return;map.flyTo(m.getLatLng(),Math.max(map.getZoom(),r.set==="coffee"?17:6),{duration:.9});setTimeout(()=>m.openPopup(),950)});
+}
+
+/* ---------- Router ---------- */
+function route(){
+  closeD();
+  const h=location.hash||"#/";
+  const m=h.match(/^#\/r\/(.+)/);
+  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":"dash";
+  document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id==="p-"+page));
+  $("#nav-dash").setAttribute("aria-current",page==="dash"?"page":"false");
+  $("#nav-lib").setAttribute("aria-current",page==="lib"||page==="rep"?"page":"false");
+  $("#nav-map").setAttribute("aria-current",page==="map"?"page":"false");
+  if(page==="map"){initMap();renderMapSide()}
+  if(page==="rep")renderReport(m[1]);
+  if(page==="lib")gsap.from(".res",{opacity:0,y:16,duration:.6,stagger:.06,ease:"expo.out"});
+  window.scrollTo(0,0);
+}
+window.addEventListener("hashchange",route);route();
+</script>
+</body>
+</html>

@@ -1,0 +1,784 @@
+{
+ "dating": {
+  "title": "Dating app for young professionals in Paris",
+  "unit": "/mo",
+  "locL": "HQ",
+  "scaleL": "Users",
+  "xL": "Cheapest paid plan per month",
+  "xMax": 50,
+  "yTop": "Serious",
+  "yBot": "Casual",
+  "you": {
+   "price": 15,
+   "y": 0.82
+  },
+  "gap": {
+   "x0": 8,
+   "x1": 19,
+   "y0": 0.95,
+   "y1": 0.65,
+   "t": "Empty spot: serious, under €20"
+  },
+  "verdict": [
+   "Serious dating under €20 is open.",
+   "Only Meetic is truly serious, and it costs €35 and skews 40+. Hinge is the one to beat: same audience, but it paywalls likes and just raised prices in France."
+  ],
+  "plan": "Plan: free likes, €15 premium, in-person Paris events. Hinge is the one to beat.",
+  "queries": [
+   "dating apps Paris",
+   "best dating app young professionals France",
+   "Hinge alternatives"
+  ],
+  "C": [
+   {
+    "id": "hinge",
+    "ll": [
+     40.7411,
+     -73.9897
+    ],
+    "n": "Hinge",
+    "loc": "New York",
+    "sim": 0.92,
+    "ang": -60,
+    "price": 24,
+    "y": 0.85,
+    "scale": "23M",
+    "hiring": "Paris, 4 roles",
+    "complaint": "Likes are paywalled",
+    "change": "Price +12%",
+    "rating": 4.1,
+    "sum": "Relationship-first app. Strongest with 25 to 35 year old urban professionals, which is your exact target.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Hinge+",
+      "24"
+     ],
+     [
+      "HingeX",
+      "45"
+     ]
+    ],
+    "f": [
+     [
+      "Prompt-based profiles get more conversations than photo-only ones",
+      "hinge.co/press"
+     ],
+     [
+      "Opened a Paris office; 4 open roles in growth",
+      "careers.hinge.co"
+     ],
+     [
+      "Top complaint: you can't see who liked you without paying",
+      "reddit.com/r/hingeapp"
+     ]
+    ],
+    "beat": [
+     "Show likes for free, earn on events instead",
+     "Lean into in-person: Paris after-work meetups",
+     "Undercut HingeX with a €15 premium tier"
+    ],
+    "tl": [
+     [
+      "2 days ago",
+      "HingeX raised from €40 to €45 in France"
+     ],
+     [
+      "9 days ago",
+      "Posted 'Country Manager, France'"
+     ]
+    ],
+    "q": [
+     "Great people, but everything useful is behind a paywall.",
+     "Best app for something serious in Paris, if you pay."
+    ]
+   },
+   {
+    "id": "happn",
+    "ll": [
+     48.8686,
+     2.3431
+    ],
+    "n": "happn",
+    "loc": "Paris",
+    "sim": 0.86,
+    "ang": 120,
+    "price": 15,
+    "y": 0.45,
+    "scale": "10M",
+    "hiring": "Paris, 2 roles",
+    "complaint": "Location feels creepy",
+    "change": "AI icebreakers",
+    "rating": 3.8,
+    "sum": "Paris-born app that matches people who crossed paths. Strong local brand, weaker on serious intent.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Premium",
+      "15"
+     ],
+     [
+      "Annual",
+      "9"
+     ]
+    ],
+    "f": [
+     [
+      "Founded in Paris in 2014",
+      "happn.com/about"
+     ],
+     [
+      "Launched AI icebreakers last week",
+      "happn.com/blog"
+     ],
+     [
+      "Privacy complaints about location sharing",
+      "reddit.com/r/france"
+     ]
+    ],
+    "beat": [
+     "Same Paris love, without location tracking",
+     "Position as the serious happn"
+    ],
+    "tl": [
+     [
+      "6 days ago",
+      "Shipped AI icebreakers"
+     ]
+    ],
+    "q": [
+     "Fun idea, but it knowing where I've been is weird.",
+     "Lots of matches, few real dates."
+    ]
+   },
+   {
+    "id": "bumble",
+    "ll": [
+     30.2672,
+     -97.7431
+    ],
+    "n": "Bumble",
+    "loc": "Austin",
+    "sim": 0.78,
+    "ang": 10,
+    "price": 20,
+    "y": 0.6,
+    "scale": "50M",
+    "hiring": "Freeze",
+    "complaint": "Match quality dropped",
+    "change": "BFF relaunch",
+    "rating": 3.6,
+    "sum": "Women message first. Owns Fruitz in France. Shifting part of its effort to friendship.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Boost",
+      "20"
+     ],
+     [
+      "Premium",
+      "38"
+     ]
+    ],
+    "f": [
+     [
+      "Acquired Paris-based Fruitz in 2022",
+      "bumble.com/investors"
+     ],
+     [
+      "No open roles in Europe",
+      "bumble.com/careers"
+     ],
+     [
+      "Reviews mention fewer active users in Paris",
+      "app store reviews"
+     ]
+    ],
+    "beat": [
+     "Target users leaving Bumble over match quality"
+    ],
+    "tl": [
+     [
+      "5 days ago",
+      "Relaunched BFF as a standalone app"
+     ]
+    ],
+    "q": [
+     "Feels emptier than a year ago.",
+     "I like messaging first, but matches go nowhere."
+    ]
+   },
+   {
+    "id": "fruitz",
+    "ll": [
+     48.8707,
+     2.3622
+    ],
+    "n": "Fruitz",
+    "loc": "Paris",
+    "sim": 0.7,
+    "ang": -160,
+    "price": 10,
+    "y": 0.3,
+    "scale": "3M",
+    "hiring": "None",
+    "complaint": "Too casual",
+    "change": "Folded into Bumble",
+    "rating": 3.9,
+    "sum": "Playful Paris app where a fruit signals what you're looking for. Now part of Bumble.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Premium",
+      "10"
+     ]
+    ],
+    "f": [
+     [
+      "Users pick a fruit to signal intent",
+      "fruitz.io"
+     ],
+     [
+      "Product team folded into Bumble",
+      "bumble.com/investors"
+     ]
+    ],
+    "beat": [
+     "Borrow the intent signal, apply it to serious dating"
+    ],
+    "tl": [],
+    "q": [
+     "Cute concept, mostly flings.",
+     "Hasn't changed in ages."
+    ]
+   },
+   {
+    "id": "meetic",
+    "ll": [
+     48.8356,
+     2.241
+    ],
+    "n": "Meetic",
+    "loc": "Paris",
+    "sim": 0.62,
+    "ang": 165,
+    "price": 35,
+    "y": 0.9,
+    "scale": "6M",
+    "hiring": "Paris, 1 role",
+    "complaint": "Feels dated",
+    "change": "None",
+    "rating": 3.4,
+    "sum": "The original French dating site. Serious intent, older audience, high price.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Premium",
+      "35"
+     ],
+     [
+      "6 months",
+      "20"
+     ]
+    ],
+    "f": [
+     [
+      "Average user age above 40, per its media kit",
+      "meetic.fr/presse"
+     ],
+     [
+      "Rated 3.4 on the French App Store",
+      "apps.apple.com"
+     ]
+    ],
+    "beat": [
+     "Same seriousness, built for 28-year-olds"
+    ],
+    "tl": [],
+    "q": [
+     "Serious people, but the app looks like 2012.",
+     "Too expensive for what it is."
+    ]
+   },
+   {
+    "id": "tinder",
+    "ll": [
+     34.0522,
+     -118.2437
+    ],
+    "n": "Tinder",
+    "loc": "Los Angeles",
+    "sim": 0.55,
+    "ang": 60,
+    "price": 20,
+    "y": 0.2,
+    "scale": "75M",
+    "hiring": "Remote, 6 roles",
+    "complaint": "Hookup culture",
+    "change": "Price test",
+    "rating": 3.5,
+    "sum": "Category leader by volume. Swipe-first, casual reputation, aggressive price testing.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Plus",
+      "10"
+     ],
+     [
+      "Gold",
+      "20"
+     ]
+    ],
+    "f": [
+     [
+      "Running a Gold price test in France",
+      "tinder.com"
+     ],
+     [
+      "Top Gen Z churn reason: too casual",
+      "reddit.com/r/Tinder"
+     ]
+    ],
+    "beat": [
+     "Don't fight on volume. Win on intent"
+    ],
+    "tl": [
+     [
+      "1 day ago",
+      "Gold shown at €20 instead of €18 for new users"
+     ]
+    ],
+    "q": [
+     "Endless swiping, nothing serious.",
+     "Everyone's here, nobody's looking for the same thing."
+    ]
+   },
+   {
+    "id": "feeld",
+    "ll": [
+     51.5246,
+     -0.0786
+    ],
+    "n": "Feeld",
+    "loc": "London",
+    "sim": 0.4,
+    "ang": -105,
+    "price": 18,
+    "y": 0.35,
+    "scale": "2M",
+    "hiring": "London, 3 roles",
+    "complaint": "Niche",
+    "change": "None",
+    "rating": 4,
+    "sum": "Niche app for alternative relationships. Not a direct competitor.",
+    "plans": [
+     [
+      "Free",
+      "0"
+     ],
+     [
+      "Majestic",
+      "18"
+     ]
+    ],
+    "f": [
+     [
+      "Rising in Paris app rankings",
+      "appfigures.com"
+     ]
+    ],
+    "beat": [
+     "Ignore for now. Different audience"
+    ],
+    "tl": [],
+    "q": [
+     "Open-minded crowd.",
+     "Small user base outside big cities."
+    ]
+   }
+  ]
+ },
+ "coffee": {
+  "title": "Specialty coffee shop in Paris 17e",
+  "unit": "",
+  "locL": "Street",
+  "scaleL": "Google rating",
+  "xL": "Price of a flat white",
+  "xMin": 2.5,
+  "xMax": 7,
+  "yTop": "Stay & work",
+  "yBot": "Grab & go",
+  "you": {
+   "price": 4.5,
+   "y": 0.85,
+   "ll": [
+    48.8862,
+    2.3165
+   ]
+  },
+  "gap": {
+   "x0": 3.6,
+   "x1": 4.8,
+   "y0": 0.98,
+   "y1": 0.66,
+   "t": "Empty spot: work-friendly specialty"
+  },
+  "verdict": [
+   "Nobody near Batignolles serves good coffee to people who want to stay and work.",
+   "Maison Moka is the specialty leader but bans laptops on weekends and charges €5.80. Work cafés allow laptops but score low on coffee. 340 reviews ask for both."
+  ],
+  "plan": "Plan: specialty coffee at €4.50, laptop zone with plugs, open from 7:30. Maison Moka is the one to beat.",
+  "queries": [
+   "specialty coffee Paris 17",
+   "café laptop friendly Batignolles",
+   "coffee shop Ternes reviews"
+  ],
+  "C": [
+   {
+    "id": "moka",
+    "ll": [
+     48.8879,
+     2.3197
+    ],
+    "n": "Maison Moka",
+    "loc": "Rue des Moines",
+    "sim": 0.9,
+    "ang": -50,
+    "price": 5.8,
+    "y": 0.55,
+    "scale": "4.7 (1.2k)",
+    "hiring": "2 baristas",
+    "complaint": "No laptops on weekends",
+    "change": "Flat white +€0.30",
+    "rating": 4.7,
+    "sum": "The specialty reference in Batignolles. Great beans, queues on weekends, laptops banned Saturday and Sunday.",
+    "plans": [
+     [
+      "Espresso",
+      "2.80"
+     ],
+     [
+      "Flat white",
+      "5.80"
+     ],
+     [
+      "Pastry",
+      "3.90"
+     ]
+    ],
+    "f": [
+     [
+      "Laptop ban on weekends, posted on Instagram",
+      "instagram.com (bio)"
+     ],
+     [
+      "Raised flat white from €5.50 to €5.80",
+      "menu page, snapshot diff"
+     ],
+     [
+      "Hiring 2 baristas",
+      "indeed.fr"
+     ]
+    ],
+    "beat": [
+     "Welcome laptops 7 days a week",
+     "Price the flat white at €4.50",
+     "Open at 7:30, 30 min earlier"
+    ],
+    "tl": [
+     [
+      "4 days ago",
+      "Flat white €5.50 → €5.80"
+     ],
+     [
+      "3 weeks ago",
+      "Started weekend laptop ban"
+     ]
+    ],
+    "q": [
+     "Best coffee in the 17th, but kicked out with my laptop.",
+     "Worth the queue. Not a place to work."
+    ]
+   },
+   {
+    "id": "filtre",
+    "ll": [
+     48.8868,
+     2.3108
+    ],
+    "n": "Le Petit Filtre",
+    "loc": "Rue Legendre",
+    "sim": 0.82,
+    "ang": 40,
+    "price": 4.6,
+    "y": 0.35,
+    "scale": "4.5 (640)",
+    "hiring": "None",
+    "complaint": "Only 8 seats",
+    "change": "None",
+    "rating": 4.5,
+    "sum": "Tiny specialty bar, mostly takeaway. Loved for its filter coffee, almost no seating.",
+    "plans": [
+     [
+      "Espresso",
+      "2.40"
+     ],
+     [
+      "Flat white",
+      "4.60"
+     ],
+     [
+      "Batch brew",
+      "3.50"
+     ]
+    ],
+    "f": [
+     [
+      "8 seats, no plugs",
+      "google maps photos"
+     ],
+     [
+      "Closes at 17:00",
+      "google maps"
+     ]
+    ],
+    "beat": [
+     "Win their regulars who want to sit"
+    ],
+    "tl": [],
+    "q": [
+     "Amazing filter, nowhere to sit.",
+     "Perfect for a quick stop."
+    ]
+   },
+   {
+    "id": "kawa",
+    "ll": [
+     48.8893,
+     2.3236
+    ],
+    "n": "Kawa Club",
+    "loc": "Av. de Clichy",
+    "sim": 0.74,
+    "ang": 150,
+    "price": 4.9,
+    "y": 0.9,
+    "scale": "4.2 (2.1k)",
+    "hiring": "3 roles",
+    "complaint": "Coffee is average",
+    "change": "Co-working pass",
+    "rating": 4.2,
+    "sum": "Café plus co-working. Plenty of plugs and Wi-Fi, but reviews call the coffee average.",
+    "plans": [
+     [
+      "Espresso",
+      "2.50"
+     ],
+     [
+      "Flat white",
+      "4.90"
+     ],
+     [
+      "Day pass",
+      "15"
+     ]
+    ],
+    "f": [
+     [
+      "Launched a €15 co-working day pass",
+      "kawaclub.fr"
+     ],
+     [
+      "31% of reviews mention 'average coffee'",
+      "google reviews · 412 sampled"
+     ]
+    ],
+    "beat": [
+     "Be the work café with real specialty coffee"
+    ],
+    "tl": [
+     [
+      "2 days ago",
+      "Launched €15 day pass"
+     ]
+    ],
+    "q": [
+     "Great to work, coffee is meh.",
+     "Lots of plugs, loud music."
+    ]
+   },
+   {
+    "id": "chain",
+    "ll": [
+     48.8798,
+     2.2985
+    ],
+    "n": "Chain café Wagram",
+    "loc": "Av. de Wagram",
+    "sim": 0.58,
+    "ang": -140,
+    "price": 5.4,
+    "y": 0.7,
+    "scale": "3.9 (3.4k)",
+    "hiring": "5 roles",
+    "complaint": "Crowded, generic",
+    "change": "Seasonal menu",
+    "rating": 3.9,
+    "sum": "International chain. Laptop-friendly and always open, but generic coffee and crowded afternoons.",
+    "plans": [
+     [
+      "Espresso",
+      "2.90"
+     ],
+     [
+      "Flat white",
+      "5.40"
+     ],
+     [
+      "Latte",
+      "5.20"
+     ]
+    ],
+    "f": [
+     [
+      "Open 7:00 to 21:00",
+      "store locator"
+     ],
+     [
+      "Afternoon crowding in 40% of reviews",
+      "google reviews"
+     ]
+    ],
+    "beat": [
+     "Quieter, better coffee, cheaper flat white"
+    ],
+    "tl": [],
+    "q": [
+     "Always a seat in the morning, never after 2pm.",
+     "It's fine. It's a chain."
+    ]
+   },
+   {
+    "id": "boul",
+    "ll": [
+     48.879,
+     2.2953
+    ],
+    "n": "Boulangerie Ternes",
+    "loc": "Rue Poncelet",
+    "sim": 0.45,
+    "ang": 95,
+    "price": 3.2,
+    "y": 0.12,
+    "scale": "4.4 (980)",
+    "hiring": "1 role",
+    "complaint": "Basic coffee",
+    "change": "None",
+    "rating": 4.4,
+    "sum": "Neighborhood bakery with cheap coffee to go. Not specialty, but captures the morning rush.",
+    "plans": [
+     [
+      "Espresso",
+      "1.60"
+     ],
+     [
+      "Café crème",
+      "3.20"
+     ],
+     [
+      "Croissant",
+      "1.40"
+     ]
+    ],
+    "f": [
+     [
+      "Morning rush 7:30 to 9:00",
+      "google popular times"
+     ]
+    ],
+    "beat": [
+     "Partner for pastries instead of competing"
+    ],
+    "tl": [],
+    "q": [
+     "Great croissants, coffee is just coffee.",
+     "Quick and cheap."
+    ]
+   },
+   {
+    "id": "roast",
+    "ll": [
+     48.8838,
+     2.3027
+    ],
+    "n": "Roastery Pereire",
+    "loc": "Bd Pereire",
+    "sim": 0.66,
+    "ang": -100,
+    "price": 6.2,
+    "y": 0.45,
+    "scale": "4.6 (520)",
+    "hiring": "None",
+    "complaint": "Expensive",
+    "change": "Open Sundays",
+    "rating": 4.6,
+    "sum": "Roaster with a small café counter. Top beans, premium prices, sells bags to take home.",
+    "plans": [
+     [
+      "Espresso",
+      "3.20"
+     ],
+     [
+      "Flat white",
+      "6.20"
+     ],
+     [
+      "250g beans",
+      "16"
+     ]
+    ],
+    "f": [
+     [
+      "Now open on Sundays",
+      "instagram.com"
+     ],
+     [
+      "Sells beans wholesale to 6 cafés",
+      "roasterypereire.fr"
+     ]
+    ],
+    "beat": [
+     "Buy beans from them instead of competing"
+    ],
+    "tl": [
+     [
+      "1 week ago",
+      "Started opening on Sundays"
+     ]
+    ],
+    "q": [
+     "The best beans in the area.",
+     "Pricey for a café stop."
+    ]
+   }
+  ]
+ }
+}

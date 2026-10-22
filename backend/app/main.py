@@ -1,0 +1,168 @@
+"""Launch Spy API + static frontend. Run: uvicorn app.main:app --reload"""
+import asyncio
+import json
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import bus, views
+from .config import settings
+from .pipeline import chat, hunt
+from .providers import web
+from .store import get_store
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+STATIC = Path(__file__).with_name("static")
+
+SEED = [
+    ("I want to open a specialty coffee shop in Paris 17e", 1),
+    ("A dating app for young professionals in Paris", 3),
+]
+
+
+async def seed():
+    """Recorded demo researches so the library, report and map are full from minute one."""
+    store = get_store()
+    existing = {r["query"] for r in await store.list_researches()}
+    t1, t2 = web.FORCE_MOCK.set(True), web.SPEED.set(0)
+    try:
+        for query, days in reversed(SEED):
+            if query in existing:
+                continue
+            r = await store.create_research(query=query, embedding=await web.embed(query), is_recorded=True)
+            await hunt._fresh(r["id"], query)
+            when = datetime.now(timezone.utc) - timedelta(days=days)
+            await store.update_research(r["id"], finished_at=when, started_at=when, seen_at=when)
+            await hunt.check_changes(r["id"], await store.research_companies(r["id"]))  # "changes since last visit"
+    finally:
+        web.FORCE_MOCK.reset(t1)
+        web.SPEED.reset(t2)
+
+
+async def watcher_loop():
+    while True:
+        await asyncio.sleep(settings.watch_interval_min * 60)
+        try:
+            await hunt.watch_all()
+        except Exception:
+            logging.exception("watcher pass failed")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    store = get_store()
+    await store.init()
+    if settings.seed_demo:
+        await seed()
+    if settings.watch_interval_min > 0:
+        hunt.spawn(watcher_loop())
+    logging.info("Launch Spy ready · store=%s · live=%s", store.kind, settings.live())
+    yield
+    await store.close()
+
+
+app = FastAPI(title="Launch Spy", lifespan=lifespan)
+
+
+class ResearchIn(BaseModel):
+    query: str
+    mode: str | None = None  # None = check memory first; "fresh" | "continue"
+    parent_id: str | None = None
+
+
+class ChatIn(BaseModel):
+    message: str
+
+
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "store": get_store().kind, "live": settings.live()}
+
+
+@app.post("/api/research")
+async def create_research(body: ResearchIn):
+    q = body.query.strip()
+    if not q:
+        raise HTTPException(400, "Describe a business or idea first.")
+    if body.mode is None and (m := await hunt.memory_match(q)):
+        r = m["research"]
+        comps = await get_store().research_companies(r["id"])
+        return {"match": {"id": r["id"], "q": r["query"], "when": hunt.ago(r["finished_at"]), "score": m["score"],
+                          "comps": len(comps), "facts": await get_store().count_facts([c["id"] for c in comps])}}
+    return await hunt.start(q, mode=body.mode or "fresh", parent_id=body.parent_id)
+
+
+@app.get("/api/research/{rid}")
+async def get_research(rid: str, seen: bool = False):
+    data = await views.report(rid)
+    if not data:
+        raise HTTPException(404, "Research not found")
+    if seen and data["status"] == "done":
+        await get_store().update_research(rid, seen_at=datetime.now(timezone.utc))
+    return data
+
+
+@app.get("/api/research/{rid}/events")
+async def events(rid: str, request: Request, after: int = 0):
+    """Server-Sent Events. Replays everything after `after` (or Last-Event-ID), then streams live."""
+    store = get_store()
+    if not await store.get_research(rid):
+        raise HTTPException(404, "Research not found")
+    last = int(request.headers.get("last-event-id") or after)
+
+    async def stream():
+        nonlocal last
+        idle = 0.0
+        while not await request.is_disconnected():
+            rows = await store.events_after(rid, last)
+            for e in rows:
+                last = e["id"]
+                data = {k: e[k] for k in ("id", "agent", "type", "payload")}
+                yield f"id: {e['id']}\ndata: {json.dumps(data, default=str)}\n\n"
+            if rows:
+                idle = 0.0
+                if rows[-1]["type"] in ("run_done", "run_error"):
+                    yield "event: end\ndata: {}\n\n"
+                    return
+            await bus.wait(rid, timeout=1.0)
+            idle += 1.0
+            if idle >= 15:
+                idle = 0.0
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/library")
+async def library():
+    return await views.library()
+
+
+@app.post("/api/research/{rid}/chat")
+async def research_chat(rid: str, body: ChatIn):
+    if not await get_store().get_research(rid):
+        raise HTTPException(404, "Research not found")
+    if not body.message.strip():
+        raise HTTPException(400, "Ask something first.")
+    return await chat.answer(rid, body.message.strip())
+
+
+@app.post("/api/watcher/run")
+async def run_watcher():
+    hunt.spawn(hunt.watch_all())
+    return {"started": True}
+
+
+@app.get("/")
+async def index():
+    return FileResponse(STATIC / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
