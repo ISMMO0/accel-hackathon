@@ -225,6 +225,20 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
 .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:.25}}
 
+/* data tab + enrich */
+.dfilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.dfilters select,.dfilters input{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;color:var(--ink);font:inherit;font-size:14px;padding:8px 12px}
+.dfilters input{flex:1;min-width:180px}
+.dfilters .count{font-size:13px;color:var(--ink-3);margin-left:auto}
+.tbl.tall{max-height:560px;overflow:auto}
+.tbl thead th{position:sticky;top:0;background:var(--bg-2)}
+td.src a{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underline-offset:3px;word-break:break-all}
+.kchip{display:inline-block;font-size:11px;border:1px solid var(--line-2);border-radius:999px;padding:1px 8px;color:var(--ink-2)}
+.r-acts{display:flex;gap:8px;align-items:center}
+.enrich-feed{background:var(--bg-2);border:1px solid var(--line-2);border-radius:14px;padding:12px 16px;margin-bottom:20px;max-height:220px;overflow:auto}
+.enrich-feed:empty{display:none}
+.enrich-feed div{font-size:13px;color:var(--ink-2);padding:3px 0}.enrich-feed b{color:var(--ink)}
+
 /* evidence page */
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:28px}
 .kpi{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:18px 20px}

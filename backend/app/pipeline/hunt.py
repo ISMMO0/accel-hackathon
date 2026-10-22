@@ -264,7 +264,7 @@ async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asy
                                f"{url} · memory", company_id=comp["id"], count=len(rows), reused=True)
                     return len(rows)
                 ext = await llm().extract(query, comp, url, text, rid)
-                rows = [{"kind": f.kind, "text": f.text, "value": f.value} for f in ext.facts]
+                rows = [{"kind": f.kind, "text": f.text, "value": f.value, "item": f.item} for f in ext.facts]
                 comp["facts"] += [{**r, "source": url} for r in rows]
                 later(rid, lambda: store.save_page(comp["id"], rid, url, text, fetcher, rows), after=ready)
                 if rows:
@@ -380,6 +380,10 @@ async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: li
     totals = {"comps": n_comps, "facts": facts, "srcs": max(1, facts // 3), "secs": secs, "reused": reused,
               "llm": stats}
     await store.update_research(rid, status="done", finished_at=now(), totals=totals)
+    try:
+        await store.log_knowledge(rid, "hunt" if mode == "fresh" else mode)
+    except Exception:
+        log.warning("knowledge log failed for %s", rid)
     await emit(rid, "strat", "run_done", "", "", mode=mode, **totals)
 
 
@@ -438,7 +442,7 @@ async def check_changes(rid: str, comps: list[dict]) -> list[str]:
                 return 0  # identical page: nothing to read, nothing to write
             # The page differs, but dynamic pages (stores, reviews) change on every visit: ask what MATTERS.
             found = await llm().changes(c, url, [f["text"] for f in seen["facts"]], text, rid)
-            rows = [{"kind": "change", "text": t, "value": ""} for t in found]
+            rows = [{"kind": "change", "text": t, "value": "", "item": ""} for t in found]
             later(rid, lambda: store.save_page(c["id"], rid, url, text, fetcher, rows))  # new fingerprint
             if not found:
                 return 0
@@ -460,6 +464,72 @@ async def check_changes(rid: str, comps: list[dict]) -> list[str]:
     await asyncio.gather(*(one(c) for c in comps), return_exceptions=True)
     await settle(rid)
     return changed
+
+
+# ---------------------------------------------------------------- enrich (the project keeps growing)
+async def start_enrich(rid: str) -> dict:
+    after = await bus.last_event_id(rid)
+    await get_store().update_research(rid, status="running")
+    spawn(_guard(rid, _enrich(rid)))
+    return {"id": rid, "after": after}
+
+
+async def _enrich(rid: str):
+    """Go back to every competitor and fetch what's still missing: prices/menu, reviews, news.
+
+    Pages already read (page memory) are skipped, so every round adds new sources instead of repeating."""
+    store, t0 = get_store(), time.perf_counter()
+    r, comps, base_stats = await asyncio.gather(store.get_research(rid), store.research_companies(rid),
+                                                store.llm_stats(rid))
+    facts_by = await store.report_facts([c["id"] for c in comps], per_company=200)
+    memory = await store.page_memory([c["id"] for c in comps]) if web.live() else {}
+    if not any(k["research_id"] == rid for k in await store.knowledge_rows()):
+        await store.log_knowledge(rid, "hunt")  # starting point of the growth curve (older researches)
+    await emit(rid, "research", "agent_status", f"Enriching {len(comps)} competitors: looking for what's missing",
+               "prices · menus · reviews · news", status="Enriching the research")
+
+    async def one(c, i):
+        have = {f["kind"] for f in facts_by[c["id"]]["latest"]}
+        priced = sum(1 for f in facts_by[c["id"]]["latest"] if f["kind"] == "price" and f.get("item"))
+        where = c.get("location") or ""
+        wants = []
+        if priced < 5:
+            wants.append(f"{c['name']} {where} menu prix tarifs pricing")
+        if "review" not in have:
+            wants.append(f"{c['name']} {where} avis reviews")
+        wants.append(f"{c['name']} {where} news 2026")
+        if not web.live():
+            await _mock_pause(0.3 * i)
+            await emit(rid, "research", "fact_added", f"{c['name']}: nothing new in recorded mode", "", company_id=c["id"], count=0)
+            return 0
+        results = await asyncio.gather(*(web.search(q) for q in wants), return_exceptions=True)
+        urls = []
+        for res in results:
+            for x in res if isinstance(res, list) else []:
+                if (c["id"], x["url"]) not in memory and x["url"] not in urls:
+                    urls.append(x["url"])
+        pages = [p for p in await asyncio.gather(*(_fetch_page(u) for u in urls[:4])) if p]
+        added = 0
+        for (url, text, fetcher), ext in zip(pages, await asyncio.gather(
+                *(llm().extract(r["query"], c, u, t, rid) for u, t, _ in pages), return_exceptions=True)):
+            if isinstance(ext, Exception) or not ext.facts:
+                continue
+            rows = [{"kind": f.kind, "text": f.text, "value": f.value, "item": f.item} for f in ext.facts]
+            later(rid, lambda url=url, text=text, fetcher=fetcher, rows=rows:
+                  store.save_page(c["id"], rid, url, text, fetcher, rows))
+            added += len(rows)
+            await emit(rid, "research", "fact_added", f"{c['name']}: {rows[0]['text']}", f"{url} · new source",
+                       company_id=c["id"], count=len(rows))
+        return added
+
+    added = sum(n for n in await asyncio.gather(*(one(c, i) for i, c in enumerate(comps)), return_exceptions=True)
+                if isinstance(n, int))
+    await settle(rid)
+    if added and web.live():  # refresh the dossiers, prices and the gap with the new facts
+        await _analyze_and_strategize(rid, r["query"], comps)
+    else:
+        await emit(rid, "strat", "insight", f"Enrich round done: {added} new facts", "", status="Done")
+    await _finish(rid, t0, mode="enrich", reused=0, base_stats=base_stats)
 
 
 async def watch_all():

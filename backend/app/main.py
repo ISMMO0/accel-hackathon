@@ -157,6 +157,34 @@ async def research_chat(rid: str, body: ChatIn):
     return await chat.answer(rid, body.message.strip())
 
 
+@app.post("/api/research/{rid}/enrich")
+async def enrich(rid: str):
+    """Send the agents back to every competitor to find what's still missing."""
+    r = await get_store().get_research(rid)
+    if not r:
+        raise HTTPException(404, "Research not found")
+    if r["status"] == "running":
+        raise HTTPException(409, "Agents are already working on this research")
+    return await hunt.start_enrich(rid)
+
+
+@app.get("/api/research/{rid}/facts")
+async def research_facts(rid: str):
+    """Every stored fact of a research (the Data tab): company, kind, item, value, text, source."""
+    store = get_store()
+    comps = await store.research_companies(rid)
+    names = {c["id"]: c["name"] for c in comps}
+    rows = await store.all_facts(list(names))
+    return [{"company": names[f["company_id"]], "company_id": f["company_id"], "kind": f["kind"],
+             "item": f.get("item", ""), "value": f["value"], "text": f["text"], "source": f["source"]} for f in rows]
+
+
+@app.get("/api/knowledge")
+async def knowledge():
+    """How much each research knows after every hunt / enrich / chat round (Evidence page growth chart)."""
+    return await get_store().knowledge_rows()
+
+
 @app.get("/api/eval")
 async def eval_results():
     """Latest evaluation run (scripts/eval.py): Launch Spy vs plain Claude + memory curve."""

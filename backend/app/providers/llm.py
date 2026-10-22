@@ -152,6 +152,7 @@ class ClaudeLLM:
                 "plans, features, hiring, locations, funding, customer complaints, recent changes. Only state "
                 "what the page says. One fact per sentence. Return at most 8 facts, the ones that matter most "
                 "to a competitor: prices, offer, audience, ratings, complaints, opening hours, recent changes. "
+                "List each priced product, plan or menu item as its own price fact with item and value set. "
                 "Skip navigation, legal text and repeated facts. Return an empty list if nothing is relevant. "
                 + UNTRUSTED
             ),
@@ -233,7 +234,7 @@ class MockLLM:
         for line in text.splitlines():
             if line.startswith("FACT|"):
                 _, kind, fact_text = line.split("|", 2)
-                facts.append(ExtractedFact(kind=kind, text=fact_text, value=""))
+                facts.append(ExtractedFact(kind=kind, text=fact_text, value="", item=""))
         return PageExtraction(facts=facts)
 
     async def analyze(self, query, companies, research_id) -> Analysis:

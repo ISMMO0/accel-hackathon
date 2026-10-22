@@ -199,13 +199,16 @@ async function renderReport(id,keepTab){
   $("#rep").innerHTML=`
    <a class="back" href="#/library"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>Research library</a>
    <div class="r-head"><div><h1>${esc(r.q)}</h1><p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
+     <div class="r-acts"><button class="ghost" id="enrichBtn" ${r.status==="running"?"disabled":""}>${r.status==="running"?"Agents working…":"Enrich: find more data"}</button></div>
      <div class="stats"><div><b class="mono">${r.C.length}</b><span>competitors</span></div><div><b class="mono">${r.C.reduce((a,c)=>a+c.facts,0)}</b><span>facts</span></div><div><b class="mono">${t.secs??"–"}s</b><span>hunt time</span></div></div></div>
    <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
      <div><h3>${esc(d.verdict[0])}</h3><p>${esc(d.verdict[1])}</p></div></div>
+   <div class="enrich-feed" id="enrichFeed"></div>
    <div class="tabs" role="tablist">
      <button role="tab" aria-selected="${tab==="pos"}" data-v="pos">Positioning</button>
      <button role="tab" aria-selected="${tab==="cmp"}" data-v="cmp">Compare</button>
      <button role="tab" aria-selected="${tab==="rev"}" data-v="rev">Reviews</button>
+     <button role="tab" aria-selected="${tab==="data"}" data-v="data">Data</button>
    </div>
    <div class="view ${tab==="pos"?"on":""}" id="v-pos"><div class="chart"><svg id="pos" viewBox="0 0 1000 520"></svg></div><p class="note">Every dot opens that competitor's dossier.</p></div>
    <div class="view ${tab==="cmp"?"on":""}" id="v-cmp"><div class="tbl"><table><thead><tr><th>Competitor</th><th>${esc(d.locL)}</th><th>Prices</th><th>${esc(d.scaleL)}</th><th>Hiring</th><th>Biggest complaint</th><th>Last change</th></tr></thead><tbody>
@@ -215,6 +218,17 @@ async function renderReport(id,keepTab){
      ${d.C.map(c=>`<div class="rv" tabindex="0" data-id="${c.id}"><div class="rv-top"><b>${esc(c.n)}</b><span class="stars" aria-label="${c.rating} out of 5">${c.rating>0?stars(c.rating):""} <span class="mono" style="color:var(--ink-2)">${c.rating>0?c.rating:"–"}</span></span></div>
        <span class="theme"><i></i>${esc(c.complaint)}</span>${(c.q||[]).map(x=>`<blockquote>“${esc(x)}”</blockquote>`).join("")}</div>`).join("")}
    </div></div>
+   <div class="view ${tab==="data"?"on":""}" id="v-data">
+     <div class="dfilters">
+       <select id="fComp"><option value="">All competitors</option>${d.C.map(c=>`<option value="${c.id}">${esc(c.n)}</option>`).join("")}</select>
+       <select id="fKind"><option value="">All types</option>${["price","feature","review","hiring","location","funding","change","other"].map(k=>`<option>${k}</option>`).join("")}</select>
+       <button class="ghost" id="fPrices" aria-pressed="false">Price list</button>
+       <input id="fText" placeholder="Filter facts, e.g. tonkotsu, vegan, Pro plan">
+       <span class="count mono" id="fCount"></span>
+     </div>
+     <div class="tbl tall"><table><thead><tr><th>Competitor</th><th>Type</th><th>Item</th><th>Value</th><th>Fact</th><th>Source</th></tr></thead><tbody id="fRows"><tr><td colspan="6" class="empty">Loading facts from Postgres…</td></tr></tbody></table></div>
+     <p class="note">Every fact the agents stored for this research, straight from Aiven Postgres. Click a column header to sort.</p>
+   </div>
    <div class="thread" id="thread"></div>
    <div class="rchat">
      <form class="search" id="rform">
@@ -229,6 +243,8 @@ async function renderReport(id,keepTab){
   $("#rform").onsubmit=e=>{e.preventDefault();const v=$("#rq").value.trim();if(v){$("#rq").value="";chat(id,v)}};
   $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(id,b.textContent));
   $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.v));
+  $("#enrichBtn").onclick=()=>enrich(id);
+  loadFacts(id);
   $("#rep").querySelectorAll("[data-id]").forEach(n=>{n.onclick=()=>openDossier(id,n.dataset.id);n.onkeydown=e=>e.key==="Enter"&&openDossier(id,n.dataset.id)});
   if(!keepTab)gsap.from("#rep > *",{opacity:0,y:14,duration:.6,stagger:.05,ease:"expo.out"});
 }
@@ -246,6 +262,37 @@ function drawPos(d){
   const you=el("g",{class:"pt you",transform:`translate(${X(d.you.price)} ${Y(d.you.y)})`},s);el("circle",{r:11},you);el("text",{x:18,y:5},you).textContent="You";
   gsap.from(s.querySelectorAll(".pt"),{opacity:0,duration:.5,stagger:.05,ease:"expo.out",delay:.2});
 }
+/* Data tab: every stored fact, filterable, sortable, with a price list view */
+let FACTS=[],fSort={k:"company",dir:1};
+async function loadFacts(id){
+  try{FACTS=await api(`/api/research/${id}/facts`)}catch{FACTS=[]}
+  ["fComp","fKind","fText"].forEach(x=>$("#"+x)&&($("#"+x).oninput=drawFacts));
+  if($("#fPrices"))$("#fPrices").onclick=e=>{const b=e.currentTarget;b.setAttribute("aria-pressed",b.getAttribute("aria-pressed")!=="true");drawFacts()};
+  document.querySelectorAll("#v-data th").forEach((th,i)=>th.onclick=()=>{const k=["company","kind","item","value","text","source"][i];fSort={k,dir:fSort.k===k?-fSort.dir:1};drawFacts()});
+  drawFacts();
+}
+function drawFacts(){
+  if(!$("#fRows"))return;
+  const comp=$("#fComp").value,kind=$("#fKind").value,q=$("#fText").value.toLowerCase(),prices=$("#fPrices").getAttribute("aria-pressed")==="true";
+  const names=Object.fromEntries((reports[repId]?.C||[]).map(c=>[c.id,c.n]));
+  let rows=FACTS.filter(f=>(!comp||f.company_id===comp)&&(!kind||f.kind===kind)&&(!prices||(f.kind==="price"&&f.value))&&(!q||(f.text+" "+f.item+" "+f.company).toLowerCase().includes(q)));
+  const num=v=>parseFloat(String(v).replace(",","."));
+  rows.sort((a,b)=>{const k=fSort.k;const x=k==="value"&&!isNaN(num(a.value))&&!isNaN(num(b.value))?num(a.value)-num(b.value):String(a[k]).localeCompare(String(b[k]));return x*fSort.dir});
+  $("#fCount").textContent=`${rows.length} of ${FACTS.length} facts`;
+  $("#fRows").innerHTML=rows.slice(0,400).map(f=>`<tr><td><b>${esc(f.company)}</b></td><td><span class="kchip">${esc(f.kind)}</span></td><td>${esc(f.item)}</td><td class="num">${f.kind==="price"&&/^[\d.,]+$/.test(f.value)?"€"+esc(f.value):esc(f.value)}</td><td>${esc(f.text)}</td><td class="src"><a href="${/^https?:/.test(f.source)?esc(f.source):"#"}" target="_blank" rel="noopener">${esc(f.source.replace(/^https?:\/\//,"").slice(0,48))}</a></td></tr>`).join("")||`<tr><td colspan="6" class="empty">No fact matches these filters.</td></tr>`;
+}
+
+/* Enrich: agents go back for missing data; progress shows live on the report */
+async function enrich(id){
+  const btn=$("#enrichBtn");btn.disabled=true;btn.textContent="Agents working…";
+  let r;try{r=await api(`/api/research/${id}/enrich`,{method:"POST"})}catch(e){btn.textContent=e.message;return}
+  const feed=$("#enrichFeed");feed.innerHTML=`<div><b>Enrich started</b>: agents are looking for prices, menus, reviews and news they don't have yet.</div>`;
+  const src=new EventSource(`/api/research/${id}/events?after=${r.after}`);
+  src.onmessage=m=>{const e=JSON.parse(m.data),p=e.payload||{};const t=p.msg||p.status;if(t&&!p.quiet){const d=document.createElement("div");d.innerHTML=`<b>${(AG[e.agent]||AG.strat).n}</b> · ${t}`;feed.prepend(d)}
+    if(e.type==="run_done"){src.close();const n=document.createElement("div");n.innerHTML=`<b>Done</b> · knowledge saved to Postgres. Reloading the report…`;feed.prepend(n);setTimeout(()=>renderReport(id,"data"),1200)}
+    if(e.type==="run_error"){src.close();btn.disabled=false;btn.textContent="Enrich: find more data"}};
+}
+
 function chipsFor(d){const a=(d.C[0]||{n:"them"}).n.split(" ")[0];return["Who has the best reviews?",`Dig deeper into ${a}'s prices`,"Who is cheapest?","Add another competitor: "]}
 function setTab(v){$("#rep").querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x.dataset.v===v));$("#rep").querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v))}
 function highlight(ids){if(!ids||!ids.length)return;setTab("pos");$("#pos").querySelectorAll(".pt").forEach(p=>p.classList.toggle("hl",ids.includes(p.dataset.id)));$("#pos").scrollIntoView({behavior:"smooth",block:"center"})}
@@ -359,9 +406,19 @@ async function renderEvidence(){
      <tr><td>1st hunt</td><td class="num">${fr.secs}s</td><td class="num">${fr.llm_calls}</td><td class="num">$${(+fr.cost_usd).toFixed(3)}</td><td class="num">${fr.reused_facts}</td></tr>
      <tr><td>Continue research</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
    </tbody></table></div></div>`:""}
+   <div class="ev-sec" id="growth"></div>
    <div class="ev-sec"><h2>Every run</h2><div class="tbl"><table><thead><tr><th>Market</th><th>System</th><th>Found</th><th>Sourced facts</th><th>Time</th><th>Cost</th></tr></thead><tbody>
      ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Launch Spy":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
    </tbody></table></div><p class="note">Answer key: backend/scripts/data/answer_key.json · raw rows in the eval_runs table (Aiven Postgres).</p></div>`;
+  renderGrowth();
+}
+async function renderGrowth(){
+  let k=[];try{k=await api("/api/knowledge")}catch{}
+  const by={};k.forEach(r=>(by[r.research_id]=by[r.research_id]||{q:r.query,pts:[]}).pts.push(r));
+  const series=Object.values(by).filter(s=>s.pts.length>1);
+  if(!series.length){$("#growth").innerHTML=`<h2>Knowledge growth</h2><p class="note">Run "Enrich" or ask questions on a research: every round that adds data is logged here.</p>`;return}
+  const max=Math.max(...series.flatMap(s=>s.pts.map(p=>p.facts)));
+  $("#growth").innerHTML=`<h2>Knowledge growth: every round adds data</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
 }
 
 /* ---------------- router ---------------- */
