@@ -81,6 +81,11 @@ async def _call(name: str, a: dict):
 
 @router.post("/mcp")
 async def mcp(request: Request):
+    from .config import settings
+    if settings.mcp_token:  # public deploys: agents must send the token (header or ?token=)
+        sent = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.query_params.get("token", "")
+        if sent != settings.mcp_token:
+            return JSONResponse({"error": "missing or wrong MCP token"}, status_code=401)
     msg = await request.json()
     if "id" not in msg:  # notification (e.g. notifications/initialized)
         return Response(status_code=202)

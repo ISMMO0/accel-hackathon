@@ -1,0 +1,12 @@
+# Aiven Runtime manifest: builds backend/Dockerfile and serves the app over HTTPS (container port 8000).
+# The database is the existing Aiven PostgreSQL service: DATABASE_URL and the API keys are set as
+# environment variables in the Aiven console (never committed). See backend/.env.example for the names.
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"

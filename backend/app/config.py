@@ -32,6 +32,7 @@ class Settings:
 
     # data
     database_url: str = field(default_factory=lambda: _env("DATABASE_URL"))
+    mcp_token: str = field(default_factory=lambda: _env("MCP_TOKEN"))  # required on /mcp when set (public deploys)
     valkey_url: str = field(default_factory=lambda: _env("VALKEY_URL"))
 
     # models (one per job, all overridable)
