@@ -108,8 +108,9 @@ class ClaudeLLM:
         raise LLMError(f"{agent}: invalid output ({last_err})")
 
     # ---- agent jobs ----
-    async def scout(self, query: str, results: list[dict], research_id: str) -> ScoutResult:
+    async def scout(self, query: str, results: list[dict], research_id: str, guides=None) -> ScoutResult:
         lines = "\n".join(f"- {r['title']} | {r['url']} | {r.get('content', '')[:300]}" for r in results)
+        guides = "\n\n".join(f"Guide: {g['url']}\n{g['text'][:6000]}" for g in guides or [])
         return await self.structured(
             agent="scout", model=settings.model_scout, effort="medium", research_id=research_id, out=ScoutResult,
             system=(
@@ -117,9 +118,10 @@ class ClaudeLLM:
                 f"currently operating competitors of the user's business. Return at most {settings.max_competitors}, "
                 "most relevant first. Use each company's own website domain, or an empty string if it has no "
                 "website of its own (never a social network or listing site). Skip directories, listicles and "
-                "news sites. " + UNTRUSTED
+                "news sites as competitors, but DO use guides and 'best of' lists: extract the businesses they "
+                "name. " + UNTRUSTED
             ),
-            user=f"Business or idea: {query}\n\nSearch results:\n<page>\n{lines}\n</page>",
+            user=f"Business or idea: {query}\n\nSearch results:\n<page>\n{lines}\n</page>\n\n<page>\n{guides}\n</page>",
         )
 
     async def extract(self, query: str, company: dict, url: str, text: str, research_id: str) -> PageExtraction:
@@ -129,7 +131,9 @@ class ClaudeLLM:
             system=(
                 "You extract competitive-intelligence facts from one web page about one company: prices and "
                 "plans, features, hiring, locations, funding, customer complaints, recent changes. Only state "
-                "what the page says. One fact per sentence. Return an empty list if nothing is relevant. "
+                "what the page says. One fact per sentence. Return at most 8 facts, the ones that matter most "
+                "to a competitor: prices, offer, audience, ratings, complaints, opening hours, recent changes. "
+                "Skip navigation, legal text and repeated facts. Return an empty list if nothing is relevant. "
                 + UNTRUSTED
             ),
             user=(f"Company: {company['name']} ({company['domain']})\nUser's idea: {query}\nURL: {url}\n\n"
@@ -154,7 +158,7 @@ class ClaudeLLM:
 
     async def strategize(self, query: str, analysis: Analysis, research_id: str) -> Strategy:
         return await self.structured(
-            agent="strategist", model=settings.model_strategist, effort="high", research_id=research_id,
+            agent="strategist", model=settings.model_strategist, effort="medium", research_id=research_id,
             out=Strategy,
             system=(
                 "You advise a founder. Find the most promising empty spot on this market map (the gap), place "
@@ -178,7 +182,7 @@ class MockLLM:
 
         await asyncio.sleep(mock_wait(s))
 
-    async def scout(self, query, results, research_id) -> ScoutResult:
+    async def scout(self, query, results, research_id, guides=None) -> ScoutResult:
         await self._wait(1.2)
         m = fixtures.markets()[fixtures.market_for(query)]
         return ScoutResult(

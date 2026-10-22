@@ -212,7 +212,7 @@ async function renderReport(id,keepTab){
      ${d.C.map(c=>`<tr class="row" tabindex="0" data-id="${c.id}"><td><b>${esc(c.n)}</b></td><td>${esc(c.loc)}</td><td class="num">${c.plans.filter(p=>p[1]!=="0").map(p=>"€"+esc(p[1])).join(" · ")}</td><td class="num">${esc(c.scale)}</td><td>${esc(c.hiring)}</td><td>${esc(c.complaint)}</td><td><span class="chip" style="--c:${!c.change||c.change==="None"?"var(--ink-3)":"var(--watch)"}"><i></i>${esc(c.change||"None")}</span></td></tr>`).join("")}
    </tbody></table></div></div>
    <div class="view ${tab==="rev"?"on":""}" id="v-rev"><div class="reviews">
-     ${d.C.map(c=>`<div class="rv" tabindex="0" data-id="${c.id}"><div class="rv-top"><b>${esc(c.n)}</b><span class="stars" aria-label="${c.rating} out of 5">${stars(c.rating)} <span class="mono" style="color:var(--ink-2)">${c.rating||"–"}</span></span></div>
+     ${d.C.map(c=>`<div class="rv" tabindex="0" data-id="${c.id}"><div class="rv-top"><b>${esc(c.n)}</b><span class="stars" aria-label="${c.rating} out of 5">${c.rating>0?stars(c.rating):""} <span class="mono" style="color:var(--ink-2)">${c.rating>0?c.rating:"–"}</span></span></div>
        <span class="theme"><i></i>${esc(c.complaint)}</span>${(c.q||[]).map(x=>`<blockquote>“${esc(x)}”</blockquote>`).join("")}</div>`).join("")}
    </div></div>
    <div class="thread" id="thread"></div>
@@ -279,7 +279,7 @@ async function openDossier(rid,cid){
   document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"));
   nodes[cid]&&nodes[cid].g.classList.add("sel");
   $("#dIn").innerHTML=`
-    <div class="d-top"><div class="logo">${esc(c.n[0]||"?")}</div><div><h2>${esc(c.n)}</h2><p>${esc(c.loc)}${c.rating?` · ${c.rating}★`:""} · ${c.facts} facts</p></div>
+    <div class="d-top"><div class="logo">${esc(c.n[0]||"?")}</div><div><h2>${esc(c.n)}</h2><p>${esc(c.loc)}${c.rating>0?` · ${c.rating}★`:""} · ${c.facts} facts</p></div>
     <button class="x" aria-label="Close" onclick="closeD()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     <p class="d-sum">${esc(c.sum)}</p>
     ${c.plans.length?`<div class="d-sec"><h4>Prices</h4><div class="plans">${c.plans.map(p=>`<div class="plan"><b>${esc(p[0])}</b><div class="p mono">${esc(fmt(p[1]))}<small>${p[1]!=="0"&&d.unit?" "+esc(d.unit):""}</small></div></div>`).join("")}</div></div>`:""}
@@ -305,7 +305,7 @@ function renderMapSide(){
   $("#mres").innerHTML=LIB.map(r=>`<button type="button" data-id="${r.id}" aria-pressed="${mapSel===r.id}"><b>${esc(r.q)}</b><span>${esc(r.when)} · ${r.comps} competitors</span></button>`).join("");
   $("#mres").querySelectorAll("button").forEach(b=>b.onclick=()=>showOnMap(b.dataset.id));
 }
-function popHtml(rid,c){const paid=c.plans.filter(p=>p[1]!=="0");return`<div class="pop"><h3>${esc(c.n)}</h3><div class="l">${esc(c.loc)}</div><dl><dt>Rating</dt><dd>${c.rating||"–"}★</dd><dt>Prices</dt><dd class="mono">${paid.map(p=>"€"+esc(p[1])).join(" · ")||"–"}</dd><dt>Weak spot</dt><dd>${esc(c.complaint)||"–"}</dd><dt>Last change</dt><dd>${esc(c.change)||"None"}</dd></dl><button class="btn" onclick="openDossier('${rid}','${c.id}')">Open dossier</button></div>`}
+function popHtml(rid,c){const paid=c.plans.filter(p=>p[1]!=="0");return`<div class="pop"><h3>${esc(c.n)}</h3><div class="l">${esc(c.loc)}</div><dl><dt>Rating</dt><dd>${c.rating>0?c.rating:"–"}★</dd><dt>Prices</dt><dd class="mono">${paid.map(p=>"€"+esc(p[1])).join(" · ")||"–"}</dd><dt>Weak spot</dt><dd>${esc(c.complaint)||"–"}</dd><dt>Last change</dt><dd>${esc(c.change)||"None"}</dd></dl><button class="btn" onclick="openDossier('${rid}','${c.id}')">Open dossier</button></div>`}
 async function showOnMap(id){
   mapSel=id;renderMapSide();
   const r=await getReport(id).catch(()=>null);if(!r)return;
@@ -319,7 +319,7 @@ async function showOnMap(id){
   if(d.you&&d.you.ll){L.marker(d.you.ll,{icon:L.divIcon({className:"",html:`<div class="pin you">YOU</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:1000}).bindPopup(`<div class="pop"><h3>Your planned spot</h3><div class="l">Inside the gap the Strategist found</div></div>`).addTo(layer);pts.push(d.you.ll)}
   if(pts.length)map.flyToBounds(L.latLngBounds(pts).pad(.25),{duration:1.2,maxZoom:16});
   else{$("#mempty").textContent="No addresses found for this research yet.";$("#mempty").style.display=""}
-  $("#mlist").innerHTML=d.C.map(c=>`<li><button type="button" data-id="${c.id}" ${c.ll?"":"disabled"}><span class="mi2">${esc(c.n[0])}</span><span><b>${esc(c.n)}</b><span class="loc">${c.ll?esc(c.loc):"No address found yet"}</span></span><span class="rt mono">${c.rating||"–"}★</span></button></li>`).join("");
+  $("#mlist").innerHTML=d.C.map(c=>`<li><button type="button" data-id="${c.id}" ${c.ll?"":"disabled"}><span class="mi2">${esc(c.n[0])}</span><span><b>${esc(c.n)}</b><span class="loc">${c.ll?esc(c.loc):"No address found yet"}</span></span><span class="rt mono">${c.rating>0?c.rating:"–"}★</span></button></li>`).join("");
   $("#mlist").querySelectorAll("button[data-id]").forEach(b=>b.onclick=()=>{const m=mk[b.dataset.id];if(!m)return;map.flyTo(m.getLatLng(),Math.max(map.getZoom(),10),{duration:.9});setTimeout(()=>m.openPopup(),950)});
 }
 

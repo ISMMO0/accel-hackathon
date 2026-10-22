@@ -124,7 +124,10 @@ async def _fresh(rid: str, query: str):
             if x["url"] not in seen:
                 seen.add(x["url"])
                 results.append(x)
-    scout = await llm().scout(query, results, rid)
+    # Guides ("best cafés in the 11e") name many competitors at once: read the top few for the Scout.
+    guide_pages = await asyncio.gather(*(_fetch_page(r["url"]) for r in results[:3])) if web.live() else []
+    guides = [{"url": p[0], "text": p[1]} for p in guide_pages if p]
+    scout = await llm().scout(query, results, rid, guides=guides)
     await store.update_research(rid, market_label=scout.market_label)
 
     cands, companies, taken = scout.candidates[: settings.max_competitors], [], set()
@@ -142,9 +145,13 @@ async def _fresh(rid: str, query: str):
                                                      "sim": sim, "ang": angle})
         await _mock_pause(0.45)
 
+    # Map pins: geocode the Scout's addresses in the background while the researchers read.
+    geo = asyncio.create_task(_geocode_all(companies))
+
     # 2. Researchers, all in parallel; one failing never stops the others
     await emit(rid, "research", "agent_status", "", "", status=f"Reading pages for {len(companies)} competitors")
     await asyncio.gather(*(_research_company(rid, query, c, i) for i, c in enumerate(companies)))
+    await geo
 
     # 3 + 4. Analyst, Strategist
     await _analyze_and_strategize(rid, query, companies)
@@ -162,7 +169,7 @@ async def _research_company(rid: str, query: str, comp: dict, i: int):
                 urls = [f"https://{comp['domain']}", f"https://{comp['domain']}/pricing"] if own_site else []
                 try:  # reviews and listings: the only source for businesses without a site
                     where = comp.get("location") or ""
-                    rev = await web.search(f"{comp['name']} {where} reviews prices")
+                    rev = await web.search(f"{comp['name']} {where} avis reviews")
                     urls += [r["url"] for r in rev if r["url"] not in urls][: settings.pages_per_company - len(urls)]
                 except Exception:
                     pass
@@ -196,6 +203,18 @@ async def _research_company(rid: str, query: str, comp: dict, i: int):
                    "partial facts kept", status="Some pages failed")
 
 
+async def _geocode_all(companies: list[dict]):
+    store = get_store()
+    for c in companies:
+        loc = c.get("location") or ""
+        if not loc:
+            continue
+        ll = await web.geocode(loc) or await web.geocode(re.sub(r"\(.*?\)", "", loc).strip(" ,"))
+        if ll:
+            c["lat"], c["lng"] = ll
+            await store.update_company(c["id"], lat=ll[0], lng=ll[1])
+
+
 async def _fetch_page(url: str):
     try:
         text, fetcher = await web.fetch(url)
@@ -209,7 +228,7 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict]):
     await emit(rid, "analyst", "agent_status", "", "", status="Cross-checking facts")
     payload = []
     for c in companies:
-        facts = await store.facts_for_company(c["id"], limit=40)
+        facts = await store.facts_for_company(c["id"], limit=15)
         payload.append({"name": c["name"], "domain": c["domain"],
                         "facts": [{"kind": f["kind"], "text": f["text"], "source": f["source"]} for f in facts]})
     analysis = await llm().analyze(query, payload, rid)
@@ -219,7 +238,11 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict]):
         c = by_domain.get(_domain(a.domain))
         if not c:
             continue
-        ll = await web.geocode(a.location, near="" if web.live() else "")
+        ll = (c["lat"], c["lng"]) if c.get("lat") is not None else None
+        if not ll:  # not pinned from the Scout's hint: try the analyst's address, then name + city
+            ll = await web.geocode(a.location)
+            if not ll and web.live():
+                ll = await web.geocode(f"{c['name']}, {a.location.split(',')[-1].strip()}")
         await store.update_company(c["id"], location=a.location, lat=ll[0] if ll else None,
                                    lng=ll[1] if ll else None)
         await store.update_link(rid, c["id"], {
