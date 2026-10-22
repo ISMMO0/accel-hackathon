@@ -4,7 +4,9 @@
 
 Built in one day at **Accel AI Innovate Paris** (22 October 2026), challenge *Future Founders: Data-Centric Agents*.
 
-> **Live app:** [https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app) (Aiven Runtime) · **Run locally:** see [Run it](#run-it)
+> **Live app:** [https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app) (deployed on Aiven Runtime)
+>
+> **Links:** [Live app](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app) · [Projects](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/library) · [Map](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/map) · [Evidence page](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/evidence) · [Connectors (MCP)](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/connectors) · [Health check](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/api/health) · [Code on GitHub](https://github.com/ISMMO0/accel-hackathon) · Run locally: see [Run it](#run-it)
 
 ![Research report: competitors orbiting, your ideal business plan, the market gap](docs/images/report.png)
 
@@ -96,7 +98,7 @@ cp .env.example .env          # add your keys; every key is optional (empty = re
 Open http://localhost:8000. Tests: `MOCK_DELAY=0.05 ANTHROPIC_API_KEY= DATABASE_URL= .venv/bin/python -m scripts.smoke`.
 Benchmark: `.venv/bin/python -m scripts.eval` (server running).
 
-**Deploy (Aiven Runtime):** `compose.aiven.yaml` builds `backend/Dockerfile`; set the same variables as `.env` in the Aiven console (plus `MCP_TOKEN` to protect `/mcp`).
+**Deploy (Aiven Runtime):** `compose.aiven.yaml` builds `backend/Dockerfile`; set the same variables as `.env` in the Aiven console (plus `MCP_TOKEN` to protect `/mcp`). Live at https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app; MCP endpoint `https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/mcp`.
 
 ## Docs
 
