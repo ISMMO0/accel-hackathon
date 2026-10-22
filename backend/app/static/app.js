@@ -594,7 +594,7 @@ function micButton(input,onDone){
 
 /* ---------------- connectors (MCP) ---------------- */
 function renderConnectors(){
-  const url=location.origin+"/mcp",local=/localhost|127\.0\.0\.1/.test(location.host);
+  const local=/localhost|127\.0\.0\.1/.test(location.host),url=location.origin+"/mcp"+(local?"":"?token=YOUR_MCP_TOKEN");
   const fav=d=>`https://www.google.com/s2/favicons?sz=64&domain=${d}`;
   const prompt=`You have access to my Before You Start MCP server (${url}). It holds my competitive-research projects: competitors, sourced facts (prices, menus, reviews), market gaps and business plans, built by AI agents from live web data.
 1. Call list_projects to see my projects.
