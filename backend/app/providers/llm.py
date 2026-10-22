@@ -115,7 +115,8 @@ class ClaudeLLM:
             system=(
                 "You map competitive landscapes for founders. From web search results, pick the real, "
                 f"currently operating competitors of the user's business. Return at most {settings.max_competitors}, "
-                "most relevant first. Use each company's own website domain. Skip directories, listicles and "
+                "most relevant first. Use each company's own website domain, or an empty string if it has no "
+                "website of its own (never a social network or listing site). Skip directories, listicles and "
                 "news sites. " + UNTRUSTED
             ),
             user=f"Business or idea: {query}\n\nSearch results:\n<page>\n{lines}\n</page>",

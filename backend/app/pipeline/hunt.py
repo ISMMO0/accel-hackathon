@@ -48,6 +48,20 @@ def _domain(d: str) -> str:
     return d.removeprefix("www.")
 
 
+# Platforms that host many businesses: never use them as a company's identity.
+SHARED_HOSTS = ("instagram.com", "facebook.com", "google.com", "goo.gl", "tripadvisor", "yelp.", "linktr.ee",
+                "tiktok.com", "ubereats.com", "deliveroo.", "thefork.", "lafourchette.", "pagesjaunes.", "foursquare.")
+
+
+def company_key(name: str, domain: str, taken: set[str]) -> tuple[str, bool]:
+    """(identity key, has_own_site). Small local businesses often have no website of their own."""
+    d = _domain(domain)
+    if d and "." in d and not any(h in d for h in SHARED_HOSTS) and d not in taken:
+        return d, True
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "company"
+    return f"{slug}.place", False
+
+
 async def _mock_pause(s: float):
     if not web.live():
         await asyncio.sleep(web.mock_wait(s))
@@ -113,10 +127,12 @@ async def _fresh(rid: str, query: str):
     scout = await llm().scout(query, results, rid)
     await store.update_research(rid, market_label=scout.market_label)
 
-    cands, companies = scout.candidates[: settings.max_competitors], []
+    cands, companies, taken = scout.candidates[: settings.max_competitors], [], set()
     n = max(len(cands), 1)
     for i, c in enumerate(cands):
-        comp = await store.upsert_company(_domain(c.domain), c.name, c.location_hint)
+        key, _ = company_key(c.name, c.domain, taken)
+        taken.add(key)
+        comp = await store.upsert_company(key, c.name, c.location_hint)
         angle = -60 + i * (360 / n) + (17 if i % 2 else 0)
         sim = max(0.3, min(0.95, c.similarity))
         await store.link_company(rid, comp["id"], sim, angle, i, {})
@@ -142,11 +158,12 @@ async def _research_company(rid: str, query: str, comp: dict, i: int):
     try:
         async with asyncio.timeout(settings.researcher_timeout_s):
             if web.live():
-                urls = [f"https://{comp['domain']}", f"https://{comp['domain']}/pricing",
-                        f"https://{comp['domain']}/careers"]
-                try:
-                    rev = await web.search(f"{comp['name']} reviews complaints")
-                    urls += [r["url"] for r in rev[:1]]
+                own_site = not comp["domain"].endswith(".place")
+                urls = [f"https://{comp['domain']}", f"https://{comp['domain']}/pricing"] if own_site else []
+                try:  # reviews and listings: the only source for businesses without a site
+                    where = comp.get("location") or ""
+                    rev = await web.search(f"{comp['name']} {where} reviews prices")
+                    urls += [r["url"] for r in rev if r["url"] not in urls][: settings.pages_per_company - len(urls)]
                 except Exception:
                     pass
                 pages = await asyncio.gather(*(_fetch_page(u) for u in urls[: settings.pages_per_company]))
@@ -154,21 +171,23 @@ async def _research_company(rid: str, query: str, comp: dict, i: int):
             else:
                 pages = [(u, t, "fixture") for u, t in web.fixture_pages(comp)]
 
-            total = 0
-            for url, text, fetcher in pages:
+            async def read(url, text, fetcher) -> int:
                 prev = await store.latest_snapshot(comp["id"], url)
                 snap = await store.add_snapshot(comp["id"], url, text, fetcher)
                 if prev and prev["content_hash"] == snap["content_hash"] and web.live():
-                    continue  # page unchanged since we last read it: no LLM call needed
+                    return 0  # page unchanged since we last read it: no LLM call needed
                 ext = await llm().extract(query, comp, url, text, rid)
                 rows = [dict(company_id=comp["id"], research_id=rid, snapshot_id=snap["id"], kind=f.kind,
                              text=f.text, value=f.value, source=url) for f in ext.facts]
                 await store.add_facts(rows)
                 if rows:
-                    total += len(rows)
                     via = {"h": " · H Company browser agent", "fixture": " · recorded"}.get(fetcher, f" · {fetcher}")
                     await emit(rid, "research", "fact_added", f"{comp['name']}: {rows[0]['text']}",
                                f"{url}{via}", company_id=comp["id"], count=len(rows))
+                return len(rows)
+
+            counts = await asyncio.gather(*(read(*p) for p in pages), return_exceptions=True)
+            total = sum(c for c in counts if isinstance(c, int))
             if not total:
                 await emit(rid, "research", "fact_added", f"{comp['name']}: no usable pages found", "",
                            company_id=comp["id"], count=0)
