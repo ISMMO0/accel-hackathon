@@ -1,4 +1,4 @@
-"""Launch Spy API + static frontend. Run: uvicorn app.main:app --reload"""
+"""Before You Start API + static frontend. Run: uvicorn app.main:app --reload"""
 import asyncio
 import json
 import logging
@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     await store.close()
 
 
-app = FastAPI(title="Launch Spy", lifespan=lifespan)
+app = FastAPI(title="Before You Start", lifespan=lifespan)
 app.include_router(mcp_router)  # MCP server at POST /mcp: use your projects from Claude, Codex, Cursor...
 
 
@@ -220,10 +220,7 @@ async def business_plan(rid: str):
     """Planner agent: the ideal business plan for this project, from its stored data (~30s)."""
     if not await get_store().get_research(rid):
         raise HTTPException(404, "Research not found")
-    try:
-        return await hunt.make_plan(rid)
-    except RuntimeError as e:
-        raise HTTPException(503, str(e))
+    return {"planning": hunt.refresh_plan(rid) or rid in hunt._planning}
 
 
 @app.get("/api/research/{rid}/facts")

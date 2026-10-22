@@ -234,6 +234,16 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   (`.cursor/mcp.json`), Claude/ChatGPT apps (custom connector; needs the public deployed URL). No auth on /mcp yet:
   fine on localhost, add a token before exposing publicly.
 
+### Phase 3i: "Before You Start", always-ready plan, data sources ✅
+- **Product renamed "Before You Start"** (UI title, brand, MCP server name `before-you-start`, API title).
+- **Business plan is always ready**: `hunt.refresh_plan(rid)` runs the Planner in the background after every
+  `run_done` (fresh, continue, enrich) and after chat questions that saved new facts; older projects get a plan on
+  first open. `POST /plan` is now non-blocking (`{"planning": true}`); the report exposes `planning` and the card
+  shows "Updating…" / "Updated X ago · from N facts" with an **Update with new data** button; the UI polls every 5s.
+- **Where this data comes from** (Data tab): facts grouped by platform (Google Maps, Reddit, TripAdvisor, TheFork,
+  app stores, social media, delivery apps, press & blogs, competitor websites, other) with fact and page counts.
+- Growth chart shows "+N facts" per project and per round (tooltip).
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

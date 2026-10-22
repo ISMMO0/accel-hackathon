@@ -92,8 +92,8 @@ async def mcp(request: Request):
     if method == "initialize":
         return ok({"protocolVersion": params.get("protocolVersion", PROTOCOL),
                    "capabilities": {"tools": {"listChanged": False}},
-                   "serverInfo": {"name": "launch-spy", "version": "0.1.0"},
-                   "instructions": "Launch Spy: competitive research projects built by AI agents from live web data. "
+                   "serverInfo": {"name": "before-you-start", "version": "0.1.0"},
+                   "instructions": "Before You Start: competitive research projects built by AI agents from live web data. "
                                    "Start with list_projects, then get_project or search_facts."})
     if method == "ping":
         return ok({})

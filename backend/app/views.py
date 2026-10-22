@@ -1,7 +1,7 @@
 """Turns stored rows into the JSON shapes the frontend renders (same shape the mockup used)."""
 import asyncio
 
-from .pipeline.hunt import ago
+from .pipeline.hunt import _planning, ago
 from .store import get_store
 
 
@@ -37,6 +37,7 @@ async def report(rid: str) -> dict | None:
         "id": r["id"], "q": r["query"], "label": r["market_label"], "status": r["status"], "mode": r["mode"],
         "when": ago(r["finished_at"] or r["started_at"]).capitalize(), "recorded": r["is_recorded"],
         "alerts": alerts, "totals": r["totals"], "market": r["market"], "C": comps, "chat": chat,
+        "planning": rid in _planning,
     }
 
 
