@@ -199,6 +199,14 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   Trigger now: `POST /api/upgrade/run`. Each round lands on the Evidence page growth chart.
 - A hunt whose failure couldn't be recorded (Wi-Fi fully down) stayed "running": `_guard` now retries the status write.
 
+### Phase 3e: project titles, picker, report planet ✅
+- Projects are titled with the Scout's `market_label` (prompt asks for a short catchy title, e.g. "Ramen restaurants ·
+  Paris 9e"); the original question shows underneath in italics (library, report, map list).
+- Before every run the dashboard asks **New project or add to an existing one?** (`POST /api/research` with
+  `mode: "check"` returns the most similar project, shown first as "Most similar"; picking a project runs
+  Continue research on it).
+- Report pages open with a large orbiting "planet" of the competitors' logos (same `thumb()` + `animateThumbs()`).
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

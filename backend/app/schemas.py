@@ -18,7 +18,8 @@ class Candidate(Strict):
 
 
 class ScoutResult(Strict):
-    market_label: str = Field(description="Short market name, e.g. 'Dating apps · Paris'")
+    market_label: str = Field(description="Short, catchy project title naming the market and place, 2 to 5 "
+                                          "words, e.g. 'Ramen restaurants · Paris 9e' or 'AI video generators'")
     candidates: list[Candidate]
 
 

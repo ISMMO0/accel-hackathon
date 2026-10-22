@@ -154,18 +154,19 @@ function finish(p){
 async function ask(q){
   if(running)return;
   q=q.trim();if(!q)return;
-  try{
-    const res=await api("/api/research",{method:"POST",body:{query:q}});
-    if(!res.match)return run(res.id,res.after,"fresh");
-    const m=res.match;
-    $("#matchSlot").innerHTML=`<div class="match" role="status">
-      <span class="mi"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>
-      <p>You researched <b>${esc(m.q)}</b> ${esc(m.when)}. <span>${m.comps} competitors, ${m.facts} facts in memory.</span></p>
-      <div class="acts"><button class="btn" id="mCont">Continue that research</button><button class="ghost" id="mFresh">Start fresh</button></div></div>`;
-    gsap.from(".match",{opacity:0,y:-8,duration:.4,ease:"expo.out"});
-    $("#mCont").onclick=async()=>{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"continue",parent_id:m.id}});run(r.id,r.after,"continue")};
-    $("#mFresh").onclick=async()=>{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"fresh"}});run(r.id,r.after,"fresh")};
-  }catch(err){log("strat",`Couldn't start: ${esc(err.message)}`,"",true)}
+  let best=null;
+  try{best=(await api("/api/research",{method:"POST",body:{query:q,mode:"check"}})).match}catch{}
+  if(!LIB.length)await loadLib();
+  const done=LIB.filter(r=>r.status==="done");
+  const ordered=[...(best?done.filter(r=>r.id===best.id):[]),...done.filter(r=>!best||r.id!==best.id)].slice(0,5);
+  $("#matchSlot").innerHTML=`<div class="match pick" role="dialog" aria-label="New or existing project">
+    <p><b>New project or add to an existing one?</b><span> Existing projects reuse what the agents already know.</span></p>
+    <div class="acts"><button class="btn" id="mFresh">New project</button></div>
+    ${ordered.length?`<div class="plist">${ordered.map((r,i)=>`<button class="ghost pitem" data-id="${r.id}">${best&&i===0?`<span class="new-badge">Most similar</span> `:""}<b>${esc(r.label||r.q)}</b> <span>${r.comps} competitors · ${r.facts} facts</span></button>`).join("")}</div>`:""}
+  </div>`;
+  gsap.from(".match",{opacity:0,y:-8,duration:.4,ease:"expo.out"});
+  $("#mFresh").onclick=async()=>{try{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"fresh"}});run(r.id,r.after,"fresh")}catch(e){log("strat",`Couldn't start: ${esc(e.message)}`,"",true)}};
+  $("#matchSlot").querySelectorAll(".pitem").forEach(b=>b.onclick=async()=>{try{const r=await api("/api/research",{method:"POST",body:{query:q,mode:"continue",parent_id:b.dataset.id}});run(r.id,r.after,"continue")}catch(e){log("strat",`Couldn't start: ${esc(e.message)}`,"",true)}});
 }
 $("#form").addEventListener("submit",e=>{e.preventDefault();if(!$("#q").value.trim())$("#q").value=$(".sugg button").dataset.q;ask($("#q").value)});
 document.querySelectorAll(".sugg button").forEach(b=>b.onclick=()=>{$("#q").value=b.dataset.q;ask(b.dataset.q)});
@@ -201,7 +202,7 @@ async function loadLib(){
   $("#libCount").textContent=LIB.length;
   $("#lib").innerHTML=LIB.length?LIB.map(r=>`<a class="res" href="#/r/${r.id}">
     <div class="thumb">${thumb(r.thumb)}</div>
-    <div class="body">${r.status==="running"?`<span class="new-badge">Running</span>`:r.recorded?`<span class="tag" style="align-self:flex-start">Recorded</span>`:""}<h3>${esc(r.q)}</h3>
+    <div class="body">${r.status==="running"?`<span class="new-badge">Running</span>`:r.recorded?`<span class="tag" style="align-self:flex-start">Recorded</span>`:""}<h3>${esc(r.label||r.q)}</h3>${r.label?`<p class="qline">“${esc(r.q)}”</p>`:""}
     ${r.alerts?`<span class="alert"><i></i>${r.alerts} changes since your last visit</span>`:""}
     <div class="meta"><span>${esc(r.when)}</span><span class="mono">${r.comps} competitors</span><span class="mono">${r.facts} facts</span></div></div></a>`).join("")
     :`<p class="empty">No research yet. Run your first hunt from the dashboard.</p>`;
@@ -220,7 +221,8 @@ async function renderReport(id,keepTab){
   if(!d.gap){$("#rep").innerHTML=`<a class="back" href="#/library">← Research library</a><h1>${esc(r.q)}</h1><p class="empty">This research is ${esc(r.status)}. The report appears when the agents finish.</p>`;return}
   $("#rep").innerHTML=`
    <a class="back" href="#/library"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>Research library</a>
-   <div class="r-head"><div><h1>${esc(r.q)}</h1><p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
+   <div class="thumb r-orbit">${thumb(d.C.map(c=>({n:c.n,sim:c.sim,ang:c.ang,d:c.domain})))}</div>
+   <div class="r-head"><div><h1>${esc(r.label||r.q)}</h1>${r.label?`<p class="qline">“${esc(r.q)}”</p>`:""}<p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
      <div class="r-acts"><button class="ghost" id="enrichBtn" ${r.status==="running"?"disabled":""}>${r.status==="running"?"Agents working…":"Enrich: find more data"}</button></div>
      <div class="stats"><div><b class="mono">${r.C.length}</b><span>competitors</span></div><div><b class="mono">${r.C.reduce((a,c)=>a+c.facts,0)}</b><span>facts</span></div><div><b class="mono">${t.secs??"–"}s</b><span>hunt time</span></div></div></div>
    <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
@@ -261,6 +263,7 @@ async function renderReport(id,keepTab){
      <div class="chips">${chipsFor(d).map(c=>`<button type="button">${esc(c)}</button>`).join("")}</div>
    </div>`;
   drawPos(d);
+  animateThumbs();
   r.chat.forEach(m=>appendMsg(m.role==="user"?{u:m.body.u}:m.body,false));
   $("#rform").onsubmit=e=>{e.preventDefault();const v=$("#rq").value.trim();if(v){$("#rq").value="";chat(id,v)}};
   $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(id,b.textContent));
@@ -371,7 +374,7 @@ function initMap(){
   layer=L.layerGroup().addTo(map);
 }
 function renderMapSide(){
-  $("#mres").innerHTML=LIB.map(r=>`<button type="button" data-id="${r.id}" aria-pressed="${mapSel===r.id}"><b>${esc(r.q)}</b><span>${esc(r.when)} · ${r.comps} competitors</span></button>`).join("");
+  $("#mres").innerHTML=LIB.map(r=>`<button type="button" data-id="${r.id}" aria-pressed="${mapSel===r.id}"><b>${esc(r.label||r.q)}</b><span>${esc(r.when)} · ${r.comps} competitors</span></button>`).join("");
   $("#mres").querySelectorAll("button").forEach(b=>b.onclick=()=>showOnMap(b.dataset.id));
 }
 function popHtml(rid,c){const paid=c.plans.filter(p=>p[1]!=="0");return`<div class="pop"><h3>${esc(c.n)}</h3><div class="l">${esc(c.loc)}</div><dl><dt>Rating</dt><dd>${c.rating>0?c.rating:"–"}★</dd><dt>Prices</dt><dd class="mono">${paid.map(p=>"€"+esc(p[1])).join(" · ")||"–"}</dd><dt>Weak spot</dt><dd>${esc(c.complaint)||"–"}</dd><dt>Last change</dt><dd>${esc(c.change)||"None"}</dd></dl><button class="btn" onclick="openDossier('${rid}','${c.id}')">Open dossier</button></div>`}
