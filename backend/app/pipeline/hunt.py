@@ -552,6 +552,29 @@ async def upgrade_next() -> str | None:
     return oldest["id"]
 
 
+async def make_plan(rid: str) -> dict:
+    """Planner agent: build (or rebuild) the ideal business plan from everything stored for this research."""
+    from ..views import report
+    store = get_store()
+    rep_ = await report(rid)
+    facts_by = await store.report_facts([c["id"] for c in rep_["C"]], per_company=25)
+    comps = [{"name": c["n"], "loc": c["loc"], "rating": c["rating"], "complaint": c["complaint"],
+              "facts": facts_by[c["id"]]["latest"]} for c in rep_["C"]]
+    if not web.live():
+        raise RuntimeError("The Planner needs the live Claude key")
+    p = await llm().plan(rep_["q"], rep_["market"], comps, rid)
+    doc = p.model_dump()
+    if p.location.is_physical:  # green zone on the map
+        ll = await web.geocode(p.location.map_query) if p.location.map_query else None
+        if not ll:
+            ll = await web.geocode(re.split(r"[/(]", p.location.area)[0].strip(" ,"))
+        doc["location"]["ll"] = list(ll) if ll else None
+    market = {**rep_["market"], "biz_plan": doc}
+    await store.update_research(rid, market=market)
+    await settle(rid)
+    return doc
+
+
 async def watch_all():
     """One Watcher pass over every finished research (scheduled loop and POST /api/watcher/run)."""
     store = get_store()

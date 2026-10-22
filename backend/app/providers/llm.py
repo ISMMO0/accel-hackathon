@@ -13,6 +13,7 @@ from .. import fixtures
 from ..config import settings
 from ..schemas import (
     Analysis,
+    BusinessPlan,
     Candidate,
     CompanyAnalysis,
     CompanyStrategy,
@@ -172,6 +173,24 @@ class ClaudeLLM:
             user=(f"Company: {company['name']}\nURL: {url}\nKnown facts:\n" + "\n".join(f"- {k}" for k in known[:30])
                   + f"\n\n<page>\n{text[:settings.page_char_limit]}\n</page>"))
         return r.changes
+
+    async def plan(self, query: str, market: dict, companies: list[dict], research_id: str) -> BusinessPlan:
+        """Planner: a launch plan grounded in the competitors' data (prices, places, ratings, complaints)."""
+        blocks = []
+        for c in companies:
+            facts = "\n".join(f"  - [{f['kind']}{'/' + f['item'] if f.get('item') else ''}] {f['text']}"
+                              for f in c["facts"])
+            blocks.append(f"{c['name']} · {c['loc']} · rating {c['rating']} · complaint: {c['complaint']}\n{facts}")
+        return await self.structured(
+            agent="planner", model=settings.model_strategist, effort="medium", research_id=research_id,
+            out=BusinessPlan,
+            system=("You are an economist and startup strategist. Write the ideal launch plan for the founder, "
+                    "grounded ONLY in the competitor data given: price the offer against real competitor prices, "
+                    "pick the location from where competitors are and aren't, attack their documented weaknesses. "
+                    "Be concrete (numbers, places, actions, timing). When the data doesn't show something (e.g. "
+                    "competitors' social media), say so instead of inventing it."),
+            user=(f"Founder's idea: {query}\n\nMarket gap found: {market.get('verdict')}\nCurrent plan line: "
+                  f"{market.get('plan')}\n\nCompetitors and their facts:\n" + "\n\n".join(blocks)))
 
     async def analyze(self, query: str, companies: list[dict], research_id: str) -> Analysis:
         blocks = []

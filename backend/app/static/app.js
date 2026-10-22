@@ -225,6 +225,7 @@ async function renderReport(id,keepTab){
    <div class="r-head"><div><h1>${esc(r.label||r.q)}</h1>${r.label?`<p class="qline">“${esc(r.q)}”</p>`:""}<p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
      <div class="r-acts"><button class="ghost" id="enrichBtn" ${r.status==="running"?"disabled":""}>${r.status==="running"?"Agents working…":"Enrich: find more data"}</button></div>
      <div class="stats"><div><b class="mono">${r.C.length}</b><span>competitors</span></div><div><b class="mono">${r.C.reduce((a,c)=>a+c.facts,0)}</b><span>facts</span></div><div><b class="mono">${t.secs??"–"}s</b><span>hunt time</span></div></div></div>
+   ${planCard(d.biz_plan)}
    <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
      <div><h3>${esc(d.verdict[0])}</h3><p>${esc(d.verdict[1])}</p></div></div>
    <div class="enrich-feed" id="enrichFeed"></div>
@@ -270,6 +271,8 @@ async function renderReport(id,keepTab){
   $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(id,b.textContent));
   $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.v));
   $("#enrichBtn").onclick=()=>enrich(id);
+  if($("#planBtn"))$("#planBtn").onclick=()=>buildPlan(id);
+  if($("#planOpen"))$("#planOpen").onclick=()=>openPlan(id);
   loadFacts(id);
   $("#rep").querySelectorAll("[data-id]").forEach(n=>{n.onclick=()=>openDossier(id,n.dataset.id);n.onkeydown=e=>e.key==="Enter"&&openDossier(id,n.dataset.id)});
   if(!keepTab)gsap.from("#rep > *",{opacity:0,y:14,duration:.6,stagger:.05,ease:"expo.out"});
@@ -288,6 +291,36 @@ function drawPos(d){
   const you=el("g",{class:"pt you",transform:`translate(${X(d.you.price)} ${Y(d.you.y)})`},s);el("circle",{r:11},you);el("text",{x:18,y:5},you).textContent="You";
   gsap.from(s.querySelectorAll(".pt"),{opacity:0,duration:.5,stagger:.05,ease:"expo.out",delay:.2});
 }
+/* ---------------- ideal business plan (Planner agent) ---------------- */
+function planCard(p){
+  if(!p)return `<div class="plan-card empty-plan"><div><h3>Your ideal business plan</h3><p>The Planner agent turns everything collected here into a launch plan: what to charge, where to open, how to launch, and how to beat each competitor.</p></div><button class="btn" id="planBtn">Build my business plan</button></div>`;
+  return `<div class="plan-card"><div class="pc-main"><span class="pc-tag">Your ideal business plan</span><h3>${esc(p.headline)}</h3><p>${esc(p.concept)}</p>
+    <div class="pc-chips">${p.price_list.slice(0,3).map(x=>`<span><b>${esc(x.price)}</b> ${esc(x.item)}</span>`).join("")}<span class="loc">📍 ${esc(p.location.area)}</span></div></div>
+    <div class="pc-acts"><button class="btn" id="planOpen">Open the full plan</button><button class="ghost" id="planBtn">Rebuild</button></div></div>`;
+}
+async function buildPlan(id){
+  const b=$("#planBtn");b.disabled=true;b.textContent="Planner agent is writing your plan… (about a minute)";
+  try{await api(`/api/research/${id}/plan`,{method:"POST"});await renderReport(id,"pos");openPlan(id)}
+  catch(e){b.disabled=false;b.textContent="Couldn't build it: "+e.message}
+}
+function openPlan(id){
+  const r=reports[id],p=r&&r.market.biz_plan;if(!p)return;
+  const li=a=>`<ul class="plist2">${a.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`;
+  $("#dIn").innerHTML=`
+    <div class="d-top"><div class="logo" style="background:var(--amber);color:var(--amber-ink)">★</div><div><h2>Your ideal business plan</h2><p>${esc(r.label||r.q)} · by the Planner agent, from ${r.C.reduce((a,c)=>a+c.facts,0)} stored facts</p></div>
+    <button class="x" aria-label="Close" onclick="closeD()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <p class="d-sum"><b>${esc(p.headline)}</b><br>${esc(p.concept)}</p>
+    <div class="d-sec"><h4>What to charge</h4><div class="tbl"><table><tbody>${p.price_list.map(x=>`<tr><td><b>${esc(x.item)}</b></td><td class="num">${esc(x.price)}</td><td style="color:var(--ink-2)">${esc(x.why)}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="d-sec"><h4>Where</h4><div class="beat"><p><b>📍 ${esc(p.location.area)}</b></p><p style="color:var(--ink-2);margin-top:6px">${esc(p.location.why)}</p>${p.location.ll?`<p style="margin-top:10px"><a href="#/map" onclick="mapSel='${id}';setTimeout(()=>showOnMap('${id}'),400)" style="color:var(--amber)">See the green zone on the map →</a></p>`:""}</div></div>
+    ${p.phases.map(ph=>`<div class="d-sec"><h4>${esc(ph.name)}</h4>${li(ph.actions)}</div>`).join("")}
+    <div class="d-sec"><h4>How to beat them</h4><div class="beat"><ol>${p.beat.map(m=>`<li><b>${esc(m.competitor)}:</b> ${esc(m.move)}</li>`).join("")}</ol></div></div>
+    <div class="d-sec"><h4>Marketing &amp; social</h4>${li(p.marketing)}</div>
+    <div class="d-sec"><h4>Risks</h4>${li(p.risks)}</div>
+    <div class="d-sec"><h4>KPIs to track</h4>${li(p.kpis)}</div>`;
+  $("#dossier").classList.add("open","wide");
+  gsap.from("#dIn > *",{opacity:0,y:12,duration:.5,stagger:.04,ease:"expo.out",delay:.1});
+}
+
 /* Data tab: every stored fact, filterable, sortable, with a price list view */
 let FACTS=[],fSort={k:"company",dir:1};
 async function loadFacts(id){
@@ -363,7 +396,7 @@ async function openDossier(rid,cid){
   $("#dossier").classList.add("open");
   gsap.from("#dIn > *",{opacity:0,y:12,duration:.5,stagger:.04,ease:"expo.out",delay:.1});
 }
-function closeD(){$("#dossier").classList.remove("open");document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"))}
+function closeD(){$("#dossier").classList.remove("open","wide");document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"))}
 document.addEventListener("keydown",e=>e.key==="Escape"&&closeD());
 
 /* ---------------- map ---------------- */
@@ -389,6 +422,9 @@ async function showOnMap(id){
     setTimeout(()=>{m.addTo(layer);const e=m.getElement();e&&gsap.from(e.firstChild,{scale:0,duration:.5,ease:"back.out(2)"})},150+i*90);
     mk[c.id]=m;pts.push(c.ll);
   });
+  const bp=d.biz_plan&&d.biz_plan.location;
+  if(bp&&bp.ll){L.circle(bp.ll,{radius:350,color:"#5fe0b0",weight:2,fillColor:"#5fe0b0",fillOpacity:.22}).bindPopup(`<div class="pop"><h3>Best spot for you</h3><div class="l">${esc(bp.area)}</div><p style="font-size:13px">${esc(bp.why)}</p></div>`).addTo(layer);
+    L.marker(bp.ll,{icon:L.divIcon({className:"",html:`<div class="pin best">★</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:900}).bindPopup(`<div class="pop"><h3>Best spot for you</h3><div class="l">${esc(bp.area)}</div></div>`).addTo(layer);pts.push(bp.ll)}
   if(d.you&&d.you.ll){L.marker(d.you.ll,{icon:L.divIcon({className:"",html:`<div class="pin you">YOU</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:1000}).bindPopup(`<div class="pop"><h3>Your planned spot</h3><div class="l">Inside the gap the Strategist found</div></div>`).addTo(layer);pts.push(d.you.ll)}
   if(pts.length)map.flyToBounds(L.latLngBounds(pts).pad(.25),{duration:1.2,maxZoom:16});
   else{$("#mempty").textContent="No addresses found for this research yet.";$("#mempty").style.display=""}
