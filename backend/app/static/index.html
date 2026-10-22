@@ -403,7 +403,21 @@ td.src a{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underl
         <svg id="sky" viewBox="0 0 900 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agents and competitors">
           <defs><radialGradient id="glow"><stop offset="0" stop-color="#ffb547" stop-opacity=".32"/><stop offset="1" stop-color="#ffb547" stop-opacity="0"/></radialGradient></defs>
           <g id="rings"></g><g id="edges"></g><g id="nodes"></g>
-          <g transform="translate(450 300)"><circle r="96" fill="url(#glow)"/><circle id="coreDisc" r="34" fill="#ffb547"/><text class="core-t">YOU</text></g>
+          <g transform="translate(450 300)"><circle r="96" fill="url(#glow)"/>
+            <g id="face">
+              <circle id="coreDisc" r="38" fill="#ffb547"/>
+              <ellipse cx="-22" cy="10" rx="6" ry="3.5" fill="#ff8a5c" opacity=".55"/><ellipse cx="22" cy="10" rx="6" ry="3.5" fill="#ff8a5c" opacity=".55"/>
+              <g id="eyes"><g id="eyeL" transform="translate(-12 -6)"><ellipse rx="6" ry="7" fill="#fff"/><circle class="pupil" r="3.4" fill="#1a1206"/></g>
+                <g id="eyeR" transform="translate(12 -6)"><ellipse rx="6" ry="7" fill="#fff"/><circle class="pupil" r="3.4" fill="#1a1206"/></g></g>
+              <path id="mouth" d="M-10 11 Q0 20 10 11" fill="none" stroke="#1a1206" stroke-width="3" stroke-linecap="round"/>
+              <g id="binos" opacity="0" transform="translate(0 30)">
+                <rect x="-25" y="-16" width="50" height="9" rx="4" fill="#2a313a"/>
+                <circle cx="-13" cy="-6" r="11" fill="#12161b" stroke="#2a313a" stroke-width="4"/><circle cx="13" cy="-6" r="11" fill="#12161b" stroke="#2a313a" stroke-width="4"/>
+                <circle cx="-13" cy="-6" r="6" fill="#7cc4ff" opacity=".45"/><circle cx="13" cy="-6" r="6" fill="#7cc4ff" opacity=".45"/>
+                <circle cx="-16" cy="-9" r="2" fill="#fff" opacity=".8"/><circle cx="10" cy="-9" r="2" fill="#fff" opacity=".8"/>
+              </g>
+            </g>
+          </g>
           <g id="pips" class="idle"></g>
         </svg>
         <div class="hint" id="hint">Your agents are on standby. Describe a business above to send them hunting.</div>

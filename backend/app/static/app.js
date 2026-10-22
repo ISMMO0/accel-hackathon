@@ -53,7 +53,30 @@ function wander(k){
 }
 function startIdle(){idle=true;$("#pips").classList.add("idle");Object.keys(pips).forEach((k,i)=>setTimeout(()=>wander(k),i*250))}
 function stopIdle(){idle=false;$("#pips").classList.remove("idle");Object.values(pips).forEach(g=>gsap.killTweensOf(g))}
-gsap.to("#coreDisc",{attr:{r:37},duration:2.2,repeat:-1,yoyo:true,ease:"sine.inOut"});
+gsap.to("#coreDisc",{attr:{r:40},duration:2.2,repeat:-1,yoyo:true,ease:"sine.inOut"});
+/* the face: looks around and blinks while idle; raises binoculars and scans while the agents hunt */
+const face={hunting:false,look:null,scan:null};
+function lookAround(){
+  if(face.hunting)return;
+  const x=(Math.random()-.5)*5,y=(Math.random()-.5)*4;
+  gsap.to("#face .pupil",{attr:{cx:x,cy:y},duration:.35,ease:"power2.out"});
+  face.look=setTimeout(lookAround,900+Math.random()*1800);
+}
+function blink(){gsap.fromTo("#eyes ellipse",{attr:{ry:7}},{attr:{ry:.8},duration:.08,yoyo:true,repeat:1,ease:"none"});setTimeout(blink,2500+Math.random()*3500)}
+function faceHunt(on){
+  face.hunting=on;clearTimeout(face.look);if(face.scan){face.scan.kill();face.scan=null}
+  if(on){
+    gsap.to("#binos",{opacity:1,attr:{transform:"translate(0 0)"},duration:.5,ease:"back.out(2)"});
+    gsap.to("#mouth",{attr:{d:"M-7 15 Q0 19 7 15"},duration:.3});
+    face.scan=gsap.timeline({repeat:-1,yoyo:true}).to("#face",{rotation:-14,svgOrigin:"0 0",duration:1.4,ease:"sine.inOut"}).to("#face",{rotation:14,svgOrigin:"0 0",duration:2.2,ease:"sine.inOut"});
+  }else{
+    gsap.to("#binos",{opacity:0,attr:{transform:"translate(0 30)"},duration:.4});
+    gsap.to("#mouth",{attr:{d:"M-10 11 Q0 20 10 11"},duration:.3});
+    gsap.to("#face",{rotation:0,svgOrigin:"0 0",duration:.6,ease:"expo.out"});
+    lookAround();
+  }
+}
+lookAround();blink();
 startIdle();
 
 let facts=0,comps=0,evs=0,t0=0,timer=null,running=false,cur=null,es=null;
@@ -131,7 +154,7 @@ function listen(id,after){
 }
 function run(id,after,mode){
   running=true;cur=id;$("#matchSlot").innerHTML="";
-  resetStage();stopIdle();
+  resetStage();stopIdle();faceHunt(true);
   $("#hint").textContent="Closer to the center means closer to your idea. Click any competitor for its dossier.";
   $("#go").disabled=true;$("#status").classList.add("live");$("#statusTxt").textContent="5 agents working";
   t0=performance.now();timer=setInterval(()=>$("#cTime").textContent=((performance.now()-t0)/1000).toFixed(1)+"s",100);
@@ -141,6 +164,7 @@ function finish(p){
   clearInterval(timer);running=false;$("#go").disabled=false;
   $("#status").classList.remove("live");$("#statusTxt").textContent=p?`Watching ${comps} competitors`:"Hunt stopped";
   document.querySelectorAll(".agent").forEach(a=>a.classList.remove("on"));
+  faceHunt(false);
   if(p){
     $("#doneS").textContent=p.mode==="continue"
       ?`· updated in ${p.secs}s by reusing ${p.reused} facts from memory`
