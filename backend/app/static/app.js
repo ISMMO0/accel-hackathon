@@ -266,6 +266,7 @@ async function renderReport(id,keepTab){
   animateThumbs();
   r.chat.forEach(m=>appendMsg(m.role==="user"?{u:m.body.u}:m.body,false));
   $("#rform").onsubmit=e=>{e.preventDefault();const v=$("#rq").value.trim();if(v){$("#rq").value="";chat(id,v)}};
+  {const rq=$("#rq");rq.dataset.ph=rq.placeholder;const mb=micButton(rq,v=>{rq.value="";chat(id,v)});if(mb)$("#rform .btn").before(mb)}
   $("#rep").querySelectorAll(".chips button").forEach(b=>b.onclick=()=>chat(id,b.textContent));
   $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.v));
   $("#enrichBtn").onclick=()=>enrich(id);
@@ -445,6 +446,26 @@ async function renderGrowth(){
   const max=Math.max(...series.flatMap(s=>s.pts.map(p=>p.facts)));
   $("#growth").innerHTML=`<h2>Knowledge growth: every round adds data</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
 }
+
+/* ---------------- voice input (browser speech-to-text, no key needed) ---------------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function micButton(input,onDone){
+  if(!SR)return null;
+  const b=document.createElement("button");b.type="button";b.className="mic";b.setAttribute("aria-label","Speak instead of typing");
+  b.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
+  let rec=null;
+  b.onclick=()=>{
+    if(rec){rec.stop();return}
+    rec=new SR();rec.lang=navigator.language||"fr-FR";rec.interimResults=true;rec.continuous=false;
+    const before=input.value;b.classList.add("on");input.placeholder="Listening…";
+    rec.onresult=e=>{input.value=(before?before+" ":"")+[...e.results].map(r=>r[0].transcript).join("")};
+    rec.onend=()=>{b.classList.remove("on");input.placeholder=input.dataset.ph||"";const v=input.value.trim();rec=null;if(v&&v!==before.trim())onDone(v)};
+    rec.onerror=()=>{b.classList.remove("on");rec=null};
+    rec.start();
+  };
+  return b;
+}
+(function(){const q=$("#q");q.dataset.ph=q.placeholder;const b=micButton(q,v=>ask(v));if(b)$("#go").before(b)})();
 
 /* ---------------- router ---------------- */
 function route(){

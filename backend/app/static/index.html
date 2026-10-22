@@ -225,6 +225,11 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
 .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:.25}}
 
+/* voice input */
+.mic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--ink-2);border:1px solid var(--line-2);flex:none;transition:color .2s,border-color .2s,background .2s}
+.mic:hover{color:var(--ink);border-color:var(--ink-3)}
+.mic.on{color:var(--amber-ink);background:var(--amber);border-color:var(--amber);animation:pulse 1.4s infinite}
+
 /* project titles, picker, report planet */
 .qline{font-size:13px;color:var(--ink-3);margin-top:2px;font-style:italic}
 .match.pick{flex-direction:column;align-items:stretch}
