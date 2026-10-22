@@ -113,9 +113,14 @@ async def _guard(rid: str, coro):
             await coro
     except Exception as e:  # includes TimeoutError: show what we have, say what failed
         log.exception("hunt %s failed", rid)
-        await store.update_research(rid, status="failed", finished_at=now())
         await emit(rid, "strat", "run_error", f"The hunt stopped: {type(e).__name__}. Saved results are kept.",
                    str(e)[:200])
+        for attempt in range(8):  # the network may be the reason it failed: keep trying to record the status
+            try:
+                await store.update_research(rid, status="failed", finished_at=now())
+                break
+            except Exception:
+                await asyncio.sleep(min(30, 2 ** attempt))
 
 
 # ---------------------------------------------------------------- background writes
@@ -200,7 +205,7 @@ async def _fresh(rid: str, query: str):
     for c in companies:  # shown immediately, saved in the background
         await emit(rid, "scout", "competitor_found", f"Found <b>{c['name']}</b> · {c['location'] or c['domain']}",
                    f"similarity {c['sim']:.2f}", company={"id": c["id"], "n": c["name"], "loc": c["location"],
-                                                          "sim": c["sim"], "ang": c["angle"]})
+                                                          "sim": c["sim"], "ang": c["angle"], "domain": c["domain"]})
         await _mock_pause(0.45)
 
     # Map pins: geocode the Scout's addresses in the background while the researchers read.
@@ -400,7 +405,7 @@ async def _continue(rid: str, query: str):
         n = await store.count_facts([c["id"]])
         await emit(rid, "analyst", "competitor_found", "", "", quiet=True, facts=n,
                    company={"id": c["id"], "n": c["name"], "loc": c["location"], "sim": c["similarity"],
-                            "ang": c["angle"]})
+                            "ang": c["angle"], "domain": c["domain"]})
         await _mock_pause(0.15)
     await emit(rid, "watch", "agent_status", "", "", status="Checking what changed")
     changed = await check_changes(rid, comps)
@@ -530,6 +535,21 @@ async def _enrich(rid: str):
     else:
         await emit(rid, "strat", "insight", f"Enrich round done: {added} new facts", "", status="Done")
     await _finish(rid, t0, mode="enrich", reused=0, base_stats=base_stats)
+
+
+async def upgrade_next() -> str | None:
+    """Upgrader agent: enrich the live research that has gone longest without new data."""
+    store = get_store()
+    rows = [r for r in await store.library_rows() if r["status"] == "done" and not r["is_recorded"]]
+    if not rows:
+        return None
+    last = {}
+    for k in await store.knowledge_rows():
+        last[k["research_id"]] = k["created_at"]
+    oldest = min(rows, key=lambda r: last.get(r["id"]) or r["finished_at"] or r["started_at"])
+    log.info("upgrader: enriching %s (%s)", oldest["id"], oldest["query"][:50])
+    await start_enrich(oldest["id"])
+    return oldest["id"]
 
 
 async def watch_all():

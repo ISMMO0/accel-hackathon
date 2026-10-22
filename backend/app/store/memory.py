@@ -200,7 +200,8 @@ class MemoryStore:
         for r in await self.list_researches():
             comps = await self.research_companies(r["id"])
             ids = [c["id"] for c in comps]
-            out.append({**r, "thumb": [{"n": c["name"], "sim": c["similarity"], "ang": c["angle"]} for c in comps],
+            out.append({**r, "thumb": [{"n": c["name"], "sim": c["similarity"], "ang": c["angle"], "d": c["domain"]}
+                                       for c in comps],
                         "comps": len(comps), "facts": await self.count_facts(ids),
                         "alerts": await self.count_alerts(ids, r["seen_at"])})
         return out

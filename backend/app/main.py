@@ -55,6 +55,17 @@ async def watcher_loop():
             logging.exception("watcher pass failed")
 
 
+async def upgrader_loop():
+    while True:
+        await asyncio.sleep(settings.upgrade_interval_min * 60)
+        if not settings.live()["llm"]:
+            continue
+        try:
+            await hunt.upgrade_next()
+        except Exception:
+            logging.exception("upgrader pass failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store = get_store()
@@ -64,6 +75,8 @@ async def lifespan(app: FastAPI):
         await seed()
     if settings.watch_interval_min > 0:
         hunt.spawn(watcher_loop())
+    if settings.upgrade_interval_min > 0:
+        hunt.spawn(upgrader_loop())
     logging.info("Launch Spy ready · store=%s · live=%s", store.kind, settings.live())
     yield
     await bus.flush()
@@ -85,7 +98,8 @@ class ChatIn(BaseModel):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "store": get_store().kind, "live": settings.live()}
+    return {"ok": True, "store": get_store().kind, "live": settings.live(),
+            "upgrader_every_min": settings.upgrade_interval_min}
 
 
 @app.post("/api/research")
@@ -189,6 +203,13 @@ async def knowledge():
 async def eval_results():
     """Latest evaluation run (scripts/eval.py): Launch Spy vs plain Claude + memory curve."""
     return await get_store().eval_rows()
+
+
+@app.post("/api/upgrade/run")
+async def run_upgrader():
+    """Run the Upgrader agent now (it also runs every UPGRADE_INTERVAL_MIN minutes)."""
+    rid = await hunt.upgrade_next()
+    return {"research_id": rid, "every_min": settings.upgrade_interval_min}
 
 
 @app.post("/api/watcher/run")
