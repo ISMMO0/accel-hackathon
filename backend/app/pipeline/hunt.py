@@ -57,7 +57,7 @@ async def _mock_pause(s: float):
 async def start(query: str, mode: str = "fresh", parent_id: str | None = None) -> dict:
     """Creates (or reopens) a research and runs the hunt in the background. Returns {id, after}."""
     store = get_store()
-    if mode == "continue" and parent_id and (parent := await store.get_research(parent_id)):
+    if mode == "continue" and parent_id and await store.get_research(parent_id):
         after = await store.last_event_id(parent_id)
         await store.update_research(parent_id, status="running", mode="continue")
         spawn(_guard(parent_id, _continue(parent_id, query)))

@@ -4,7 +4,6 @@ Real calls use structured outputs (JSON schema from the Pydantic models) so ever
 validated data, never free text we have to parse.
 """
 import asyncio
-import json
 import time
 from typing import Awaitable, Callable, TypeVar
 
