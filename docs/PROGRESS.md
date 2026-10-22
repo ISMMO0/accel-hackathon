@@ -110,13 +110,38 @@ The smoke test must run with keys blanked as above, otherwise it would write tes
 | Strategist (1 call) | 29s | $0.05 |
 | **Total** | **127s, 8 competitors, 274 facts, all geocoded** | **$0.85** |
 
-**Open decision (owner: Ismail):** switch `MODEL_EXTRACT` to `claude-haiku-5-5` (and possibly
-`MODEL_ANALYST` to `claude-sonnet-5-5`). Extraction is ~75% of cost; Haiku is ~40× cheaper and faster.
-Set in `backend/.env`; no code change needed.
+**Decision taken:** `MODEL_EXTRACT=claude-haiku-5-5` (see Phase 2). Scout/Analyst/Strategist/chat stay Opus 5.5.
+
+### Phase 2: speed + resilience on bad Wi-Fi ✅
+**Root cause found:** venue Wi-Fi to Aiven (Frankfurt) has packet loss and 1–2s spikes (sometimes 12s to open
+a connection). Sequential DB calls on the agents' path made hunts time out. LLMs were not the problem.
+
+**Changes (all tested on memory store, local Postgres, and live on Aiven)**
+- `MODEL_EXTRACT=claude-haiku-5-5` (Ismail's choice). Page reading went from $0.63 to ~$0.01 per hunt.
+  Haiku has no server-side refusal fallback, so `fallbacks` is only sent for Opus/Sonnet (`llm.py`).
+- Effort per job is configurable: `EFFORT_SCOUT/ANALYST/STRATEGIST` default `low` (Analyst 28s→12s, Strategist 20s→11s).
+- **Events (`bus.py`)**: emitted to memory first (UI sees them instantly), written to Postgres in batches by a
+  background writer with retries. Ids are monotonic microsecond timestamps, so replay with `?after=` works across
+  memory and DB. `bus.flush()` waits for pending writes (used at shutdown and in tests).
+- **Hunt (`hunt.py`)**: runs in memory. Every DB write goes through `later(rid, fn, after=ready)` (background
+  task with retries); `settle(rid)` awaits them all before the run is marked `done`. Company ids are deterministic
+  (`company_id(domain)` = `"c" + sha1(domain)[:11]`, in `store/memory.py`), so no DB round trip is needed to know
+  them. LLM call logs are also written in the background.
+- **Store**: `save_page()` writes snapshot + facts in ONE round trip; `report_facts()` and `library_rows()`
+  load a report / the library in one query each; pool 10 (Aiven limit 15), command timeout 60s.
+- **Fetching**: Keenable indexed copy first, then live; per-fetcher timeouts (10s Keenable, 8s Jina, 12s Firecrawl);
+  each page has a 15s budget; researcher hard cap `RESEARCHER_TIMEOUT_S=30` (facts already found are kept);
+  review search runs in parallel with the competitor's own site; `PAGE_CHAR_LIMIT=12000`.
+- Scout emits "N web results, reading 3 guides" so the feed moves while it thinks.
+- Aiven tables were reset once (test data only) for the deterministic company ids; demo seed re-created them.
+- `uvicorn --timeout-graceful-shutdown 2`: with `--reload`, open SSE streams otherwise block the restart.
+
+**Measured live (Wi-Fi), coffee shop Paris 11e:** first competitor 13–15s, full hunt ~86–105s, **$0.14–0.19**,
+8 competitors, all geocoded. Dating market: big app sites are slow to fetch, several researchers hit the 30s cap.
+Report page load 4–10s over this Wi-Fi (library 0.8s). **Biggest remaining speed win = deploy on Aiven Runtime**
+(app next to the database and the APIs).
 
 ### Next phases (plan)
-- **Phase 2 — speed:** target first competitor < 5s, full hunt < 60s. Measure after the model decision.
-  Ideas: Keenable fetch `prompt=` extraction, fewer pages per competitor, Valkey cache (`VALKEY_URL`).
 - **Phase 3 — evidence:** `scripts/eval.py` + answer key (6–8 markets with known competitors):
   recall vs plain Claude, grounding rate, price freshness, memory curve (4 related hunts getting faster/cheaper).
   Store results in Aiven Postgres; Lightdash dashboard on top.

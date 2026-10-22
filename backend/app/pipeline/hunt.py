@@ -10,11 +10,13 @@ import time
 from datetime import datetime, timezone
 
 from .. import fixtures
+from .. import bus
 from ..bus import emit
 from ..config import settings
 from ..providers import web
 from ..providers.llm import MockLLM, make_llm
 from ..store import get_store
+from ..store.memory import company_id
 
 log = logging.getLogger("hunt")
 _tasks: set[asyncio.Task] = set()
@@ -26,11 +28,17 @@ def llm():
     global _llm, _mock_llm
     if web.FORCE_MOCK.get():
         if _mock_llm is None:
-            _mock_llm = MockLLM(get_store().log_llm_call)
+            _mock_llm = MockLLM(_log_call)
         return _mock_llm
     if _llm is None:
-        _llm = make_llm(get_store().log_llm_call)
+        _llm = make_llm(_log_call)
     return _llm
+
+
+async def _log_call(**row):
+    """LLM call log (cost/latency) is written in the background, never on the agent's critical path."""
+    rid = row.get("research_id")
+    later(rid or "_", lambda: get_store().log_llm_call(**row))
 
 
 def spawn(coro) -> None:
@@ -72,12 +80,13 @@ async def start(query: str, mode: str = "fresh", parent_id: str | None = None) -
     """Creates (or reopens) a research and runs the hunt in the background. Returns {id, after}."""
     store = get_store()
     if mode == "continue" and parent_id and await store.get_research(parent_id):
-        after = await store.last_event_id(parent_id)
+        after = await bus.last_event_id(parent_id)
         await store.update_research(parent_id, status="running", mode="continue")
         spawn(_guard(parent_id, _continue(parent_id, query)))
         return {"id": parent_id, "after": after}
     emb = await web.embed(query)
     r = await store.create_research(query=query, embedding=emb, is_recorded=not web.live())
+    bus.new_research(r["id"])
     spawn(_guard(r["id"], _fresh(r["id"], query)))
     return {"id": r["id"], "after": 0}
 
@@ -108,6 +117,38 @@ async def _guard(rid: str, coro):
                    str(e)[:200])
 
 
+# ---------------------------------------------------------------- background writes
+# The hunt runs in memory; database writes happen in the background so a slow network to Aiven never
+# stalls the agents. A research is only marked done after settle() has awaited every pending write.
+_pending: dict[str, list[asyncio.Task]] = {}
+
+
+def later(rid: str, coro, after: asyncio.Task | None = None) -> asyncio.Task:
+    async def run():
+        if after:
+            await after
+        for attempt in range(4):  # flaky network: retry with backoff
+            try:
+                return await coro_factory()
+            except Exception as e:
+                if attempt == 3:
+                    log.error("write failed for %s: %s", rid, e)
+                    raise
+                await asyncio.sleep(0.5 * 2 ** attempt)
+
+    # accept either a coroutine function (retryable) or a coroutine (single try)
+    coro_factory = coro if callable(coro) else (lambda c=coro: c)
+    t = asyncio.create_task(run())
+    _pending.setdefault(rid, []).append(t)
+    return t
+
+
+async def settle(rid: str):
+    while _pending.get(rid):
+        tasks, _pending[rid] = _pending[rid], []
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 # ---------------------------------------------------------------- fresh hunt
 async def _fresh(rid: str, query: str):
     store, t0 = get_store(), time.perf_counter()
@@ -125,68 +166,81 @@ async def _fresh(rid: str, query: str):
                 seen.add(x["url"])
                 results.append(x)
     # Guides ("best cafés in the 11e") name many competitors at once: read the top few for the Scout.
-    guide_pages = await asyncio.gather(*(_fetch_page(r["url"]) for r in results[:3])) if web.live() else []
+    guide_pages = await asyncio.gather(*(_fetch_page(r["url"], 8) for r in results[:3])) if web.live() else []
     guides = [{"url": p[0], "text": p[1]} for p in guide_pages if p]
+    if web.live():
+        await emit(rid, "scout", "agent_status", f"{len(results)} web results, reading {len(guides)} guides",
+                   " · ".join(_domain(g["url"]) for g in guides), status="Picking real competitors")
     scout = await llm().scout(query, results, rid, guides=guides)
-    await store.update_research(rid, market_label=scout.market_label)
+    later(rid, lambda: store.update_research(rid, market_label=scout.market_label))
 
-    cands, companies, taken = scout.candidates[: settings.max_competitors], [], set()
+    cands, taken, companies = scout.candidates[: settings.max_competitors], set(), []
     n = max(len(cands), 1)
     for i, c in enumerate(cands):
         key, _ = company_key(c.name, c.domain, taken)
         taken.add(key)
-        comp = await store.upsert_company(key, c.name, c.location_hint)
-        angle = -60 + i * (360 / n) + (17 if i % 2 else 0)
-        sim = max(0.3, min(0.95, c.similarity))
-        await store.link_company(rid, comp["id"], sim, angle, i, {})
-        companies.append({**comp, "sim": sim})
-        await emit(rid, "scout", "competitor_found", f"Found <b>{c.name}</b> · {c.location_hint or comp['domain']}",
-                   f"similarity {sim:.2f}", company={"id": comp["id"], "n": c.name, "loc": c.location_hint,
-                                                     "sim": sim, "ang": angle})
+        companies.append({"id": company_id(key), "domain": key, "name": c.name, "location": c.location_hint,
+                          "lat": None, "lng": None, "sim": max(0.3, min(0.95, c.similarity)),
+                          "angle": -60 + i * (360 / n) + (17 if i % 2 else 0), "pos": i, "facts": []})
+
+    async def persist_companies():
+        await asyncio.gather(*(store.upsert_company(c["domain"], c["name"], c["location"], cid=c["id"])
+                               for c in companies))
+        await asyncio.gather(*(store.link_company(rid, c["id"], c["sim"], c["angle"], c["pos"], {})
+                               for c in companies))
+    ready = later(rid, persist_companies)
+
+    for c in companies:  # shown immediately, saved in the background
+        await emit(rid, "scout", "competitor_found", f"Found <b>{c['name']}</b> · {c['location'] or c['domain']}",
+                   f"similarity {c['sim']:.2f}", company={"id": c["id"], "n": c["name"], "loc": c["location"],
+                                                          "sim": c["sim"], "ang": c["angle"]})
         await _mock_pause(0.45)
 
     # Map pins: geocode the Scout's addresses in the background while the researchers read.
-    geo = asyncio.create_task(_geocode_all(companies))
+    geo = asyncio.create_task(_geocode_all(rid, companies, ready))
 
     # 2. Researchers, all in parallel; one failing never stops the others
     await emit(rid, "research", "agent_status", "", "", status=f"Reading pages for {len(companies)} competitors")
-    await asyncio.gather(*(_research_company(rid, query, c, i) for i, c in enumerate(companies)))
+    await asyncio.gather(*(_research_company(rid, query, c, i, ready) for i, c in enumerate(companies)))
     await geo
 
     # 3 + 4. Analyst, Strategist
-    await _analyze_and_strategize(rid, query, companies)
+    await _analyze_and_strategize(rid, query, companies, ready)
 
-    await _finish(rid, t0, mode="fresh")
+    await _finish(rid, t0, mode="fresh", companies=companies)
 
 
-async def _research_company(rid: str, query: str, comp: dict, i: int):
+async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asyncio.Task | None = None):
+    """Fetch + read one competitor's pages. Facts go into comp["facts"] at once and to the DB in the background."""
     store = get_store()
+    comp.setdefault("facts", [])
     await _mock_pause(0.55 * i)  # mock: stagger so the demo animation reads well
     try:
         async with asyncio.timeout(settings.researcher_timeout_s):
             if web.live():
                 own_site = not comp["domain"].endswith(".place")
-                urls = [f"https://{comp['domain']}", f"https://{comp['domain']}/pricing"] if own_site else []
-                try:  # reviews and listings: the only source for businesses without a site
-                    where = comp.get("location") or ""
-                    rev = await web.search(f"{comp['name']} {where} avis reviews")
-                    urls += [r["url"] for r in rev if r["url"] not in urls][: settings.pages_per_company - len(urls)]
-                except Exception:
-                    pass
-                pages = await asyncio.gather(*(_fetch_page(u) for u in urls[: settings.pages_per_company]))
-                pages = [p for p in pages if p]
+                site = [f"https://{comp['domain']}", f"https://{comp['domain']}/pricing"] if own_site else []
+
+                async def reviews():  # reviews and listings: the only source for businesses without a site
+                    try:
+                        rev = await web.search(f"{comp['name']} {comp.get('location') or ''} avis reviews")
+                    except Exception:
+                        return []
+                    urls = [r["url"] for r in rev if r["url"] not in site][: settings.pages_per_company - len(site)]
+                    return await asyncio.gather(*(_fetch_page(u) for u in urls))
+
+                # own site and review search at the same time
+                site_pages, review_pages = await asyncio.gather(
+                    asyncio.gather(*(_fetch_page(u) for u in site)), reviews())
+                pages = [p for p in [*site_pages, *review_pages] if p]
             else:
                 pages = [(u, t, "fixture") for u, t in web.fixture_pages(comp)]
 
             async def read(url, text, fetcher) -> int:
-                prev = await store.latest_snapshot(comp["id"], url)
-                snap = await store.add_snapshot(comp["id"], url, text, fetcher)
-                if prev and prev["content_hash"] == snap["content_hash"] and web.live():
-                    return 0  # page unchanged since we last read it: no LLM call needed
                 ext = await llm().extract(query, comp, url, text, rid)
-                rows = [dict(company_id=comp["id"], research_id=rid, snapshot_id=snap["id"], kind=f.kind,
-                             text=f.text, value=f.value, source=url) for f in ext.facts]
-                await store.add_facts(rows)
+                rows = [{"kind": f.kind, "text": f.text, "value": f.value} for f in ext.facts]
+                comp["facts"] += [{**r, "source": url} for r in rows]
+                later(rid, lambda: store.save_page(comp["id"], rid, url, text, fetcher, rows), after=ready)
                 if rows:
                     via = {"h": " · H Company browser agent", "fixture": " · recorded"}.get(fetcher, f" · {fetcher}")
                     await emit(rid, "research", "fact_added", f"{comp['name']}: {rows[0]['text']}",
@@ -203,7 +257,7 @@ async def _research_company(rid: str, query: str, comp: dict, i: int):
                    "partial facts kept", status="Some pages failed")
 
 
-async def _geocode_all(companies: list[dict]):
+async def _geocode_all(rid: str, companies: list[dict], ready: asyncio.Task | None):
     store = get_store()
     for c in companies:
         loc = c.get("location") or ""
@@ -212,55 +266,62 @@ async def _geocode_all(companies: list[dict]):
         ll = await web.geocode(loc) or await web.geocode(re.sub(r"\(.*?\)", "", loc).strip(" ,"))
         if ll:
             c["lat"], c["lng"] = ll
-            await store.update_company(c["id"], lat=ll[0], lng=ll[1])
+            later(rid, lambda c=c, ll=ll: store.update_company(c["id"], lat=ll[0], lng=ll[1]), after=ready)
 
 
-async def _fetch_page(url: str):
+async def _fetch_page(url: str, budget: float = 15):
+    """A page that doesn't answer within the budget is skipped: one slow site must not stall the hunt."""
     try:
-        text, fetcher = await web.fetch(url)
+        async with asyncio.timeout(budget):
+            text, fetcher = await web.fetch(url)
         return url, web.clean(text), fetcher
     except Exception:
         return None
 
 
-async def _analyze_and_strategize(rid: str, query: str, companies: list[dict]):
+async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], ready: asyncio.Task | None = None):
     store = get_store()
     await emit(rid, "analyst", "agent_status", "", "", status="Cross-checking facts")
-    payload = []
-    for c in companies:
-        facts = await store.facts_for_company(c["id"], limit=15)
-        payload.append({"name": c["name"], "domain": c["domain"],
-                        "facts": [{"kind": f["kind"], "text": f["text"], "source": f["source"]} for f in facts]})
+    if all("facts" in c for c in companies):  # fresh hunt: facts are already in memory
+        facts_by = {c["id"]: c["facts"][:15] for c in companies}
+    else:  # continue mode: read them from the database (one query)
+        got = await store.report_facts([c["id"] for c in companies], per_company=15)
+        facts_by = {cid: v["latest"] for cid, v in got.items()}
+    payload = [{"name": c["name"], "domain": c["domain"],
+                "facts": [{"kind": f["kind"], "text": f["text"], "source": f["source"]} for f in facts_by[c["id"]]]}
+               for c in companies]
     analysis = await llm().analyze(query, payload, rid)
     by_domain = {c["domain"]: c for c in companies}
 
-    for a in analysis.companies:
+    async def place(a):
         c = by_domain.get(_domain(a.domain))
         if not c:
-            continue
+            return
         ll = (c["lat"], c["lng"]) if c.get("lat") is not None else None
         if not ll:  # not pinned from the Scout's hint: try the analyst's address, then name + city
             ll = await web.geocode(a.location)
             if not ll and web.live():
                 ll = await web.geocode(f"{c['name']}, {a.location.split(',')[-1].strip()}")
-        await store.update_company(c["id"], location=a.location, lat=ll[0] if ll else None,
-                                   lng=ll[1] if ll else None)
-        await store.update_link(rid, c["id"], {
-            "price": a.x, "y": a.y, "scale": a.scale, "hiring": a.hiring, "complaint": a.complaint,
-            "rating": a.rating, "sum": a.summary, "plans": [[p.name, p.price] for p in a.plans], "q": a.quotes,
-            "change": a.change})
+        view = {"price": a.x, "y": a.y, "scale": a.scale, "hiring": a.hiring, "complaint": a.complaint,
+                "rating": a.rating, "sum": a.summary, "plans": [[p.name, p.price] for p in a.plans], "q": a.quotes,
+                "change": a.change}
+        later(rid, lambda: store.update_company(c["id"], location=a.location, lat=ll[0] if ll else None,
+                                                lng=ll[1] if ll else None), after=ready)
+        later(rid, lambda: store.update_link(rid, c["id"], view), after=ready)
+
+    await asyncio.gather(*(place(a) for a in analysis.companies))
     for a in sorted(analysis.companies, key=lambda a: -a.rating)[:3]:
         c = by_domain.get(_domain(a.domain))
-        if c:
+        if c and a.rating > 0:
             await emit(rid, "analyst", "analysis", f"{c['name']}: {a.rating}★, top complaint “{a.complaint.lower()}”",
-                       "reviews clustered · postgres", company_id=c["id"])
+                       "reviews clustered", company_id=c["id"])
             await _mock_pause(0.5)
 
     await emit(rid, "strat", "agent_status", "", "", status="Finding the gap")
     s = await llm().strategize(query, analysis, rid)
     for cs in s.companies:
         if c := by_domain.get(_domain(cs.domain)):
-            await store.update_link(rid, c["id"], {"beat": cs.beat})
+            later(rid, lambda c=c, beat=cs.beat: store.update_link(rid, c["id"], {"beat": beat}), after=ready)
     f = analysis.frame
     you_ll = None
     if not web.live():
@@ -270,19 +331,23 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict]):
               "you": {"price": s.you_x, "y": s.you_y, "ll": you_ll},
               "gap": {"x0": s.gap.x0, "x1": s.gap.x1, "y0": s.gap.y0, "y1": s.gap.y1, "t": s.gap.label},
               "verdict": [s.headline, s.detail], "plan": s.plan}
-    await store.update_research(rid, market=market)
-    facts = await store.count_facts([c["id"] for c in companies])
-    await emit(rid, "strat", "insight", f"Gap found: {s.headline}", f"based on {facts} facts")
+    later(rid, lambda: store.update_research(rid, market=market))
+    facts = sum(len(v) for v in facts_by.values())
+    await emit(rid, "strat", "insight", f"Gap found: {s.headline}", f"based on {facts} key facts")
     await _mock_pause(0.8)
     await emit(rid, "strat", "insight", s.plan, f"{len(companies)} dossiers written")
 
 
-async def _finish(rid: str, t0: float, mode: str, reused: int = 0):
+async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: list[dict] | None = None):
     store = get_store()
-    comps = await store.research_companies(rid)
-    facts = await store.count_facts([c["id"] for c in comps])
-    secs = round(time.perf_counter() - t0, 1)
-    totals = {"comps": len(comps), "facts": facts, "srcs": max(1, facts // 3), "secs": secs, "reused": reused,
+    secs = round(time.perf_counter() - t0, 1)  # what the user waited for
+    await settle(rid)  # every background write has landed before we call it done
+    if companies is not None and all("facts" in c for c in companies):
+        n_comps, facts = len(companies), sum(len(c["facts"]) for c in companies)
+    else:
+        comps = await store.research_companies(rid)
+        n_comps, facts = len(comps), await store.count_facts([c["id"] for c in comps])
+    totals = {"comps": n_comps, "facts": facts, "srcs": max(1, facts // 3), "secs": secs, "reused": reused,
               "llm": await store.llm_stats(rid)}
     await store.update_research(rid, status="done", finished_at=now(), totals=totals)
     await emit(rid, "strat", "run_done", "", "", mode=mode, **totals)

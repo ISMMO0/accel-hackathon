@@ -16,6 +16,11 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def company_id(domain: str) -> str:
+    """Stable id from the domain: known without a database round trip, same in every research."""
+    return "c" + hashlib.sha1(domain.encode()).hexdigest()[:11]
+
+
 class MemoryStore:
     kind = "memory"
 
@@ -67,11 +72,11 @@ class MemoryStore:
         return best
 
     # ---- companies ----
-    async def upsert_company(self, domain, name, location=""):
+    async def upsert_company(self, domain, name, location="", cid=None):
         for c in self.companies.values():
             if c["domain"] == domain:
                 return dict(c)
-        c = dict(id=new_id(), domain=domain, name=name, location=location, lat=None, lng=None)
+        c = dict(id=cid or company_id(domain), domain=domain, name=name, location=location, lat=None, lng=None)
         self.companies[c["id"]] = c
         return dict(c)
 
@@ -139,6 +144,32 @@ class MemoryStore:
                  created_at=now())
         self.events.append(e)
         return dict(e)
+
+    async def add_events(self, events):
+        known = {e["id"] for e in self.events}
+        self.events += [dict(e) for e in events if e["id"] not in known]
+
+    async def save_page(self, company_id, research_id, url, text, fetcher, facts):
+        snap = await self.add_snapshot(company_id, url, text, fetcher)
+        await self.add_facts([dict(company_id=company_id, research_id=research_id, snapshot_id=snap["id"],
+                                   kind=f["kind"], text=f["text"], value=f["value"], source=url) for f in facts])
+
+    async def report_facts(self, company_ids, per_company=8):
+        out = {}
+        for cid in company_ids:
+            fs = [dict(f) for f in self.facts if f["company_id"] == cid]
+            out[cid] = {"count": len(fs), "latest": fs[-per_company:]}
+        return out
+
+    async def library_rows(self):
+        out = []
+        for r in await self.list_researches():
+            comps = await self.research_companies(r["id"])
+            ids = [c["id"] for c in comps]
+            out.append({**r, "thumb": [{"n": c["name"], "sim": c["similarity"], "ang": c["angle"]} for c in comps],
+                        "comps": len(comps), "facts": await self.count_facts(ids),
+                        "alerts": await self.count_alerts(ids, r["seen_at"])})
+        return out
 
     async def events_after(self, research_id, after_id):
         return [dict(e) for e in self.events if e["research_id"] == research_id and e["id"] > after_id]
