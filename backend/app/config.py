@@ -59,6 +59,8 @@ class Settings:
     mock_delay: float = field(default_factory=lambda: float(_env("MOCK_DELAY", "1")))
     seed_demo: bool = field(default_factory=lambda: _env("SEED_DEMO", "1") == "1")
     watch_interval_min: int = field(default_factory=lambda: int(_env("WATCH_INTERVAL_MIN", "0")))
+    # Upgrader agent: every N minutes, enrich the research that has gone longest without new data (0 = off)
+    upgrade_interval_min: int = field(default_factory=lambda: int(_env("UPGRADE_INTERVAL_MIN", "10")))
     geocode_user_agent: str = field(default_factory=lambda: _env("GEOCODE_USER_AGENT", "launch-spy-hackathon/0.1"))
 
     embed_dim: int = 1536

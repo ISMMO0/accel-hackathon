@@ -13,6 +13,9 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const CX=450,CY=300;
 const posOf=(c,cx=CX,cy=CY,k=1)=>{const r=(90+(1-c.sim)*290)*k;const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r,cy+Math.sin(a)*r]};
 const fmt=v=>v==="0"?"Free":"€"+v;
+// Company logo from its own website icon; businesses without a site (".place") keep their initial.
+const logoUrl=d=>d&&!/\.(place|example)$/.test(d)?`https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(d)}`:null;
+const logoImg=(d,cls="")=>{const u=logoUrl(d);return u?`<img class="${cls}" src="${u}" alt="" loading="lazy" onerror="this.remove()">`:""};
 async function api(path,opts={}){
   const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
   if(!r.ok){let m=r.statusText;try{m=(await r.json()).detail||m}catch{}throw new Error(m)}
@@ -63,6 +66,8 @@ function addNode(c){
   const g=el("g",{class:"node",tabindex:0,role:"button","aria-label":c.n},$("#nodes"));
   el("circle",{cx:x,cy:y,r:27,class:"disc"},g);
   el("text",{x,y,class:"ini"},g).textContent=(c.n[0]||"?").toUpperCase();
+  const lu=logoUrl(c.domain);
+  if(lu){el("circle",{cx:x,cy:y,r:19,fill:"#fff"},g);const im=el("image",{href:lu,x:x-14,y:y-14,width:28,height:28,style:"clip-path:circle(50%)"},g);im.addEventListener("error",()=>{im.remove();g.querySelector('circle[fill="#fff"]')?.remove()})}
   el("text",{x,y:y+48,class:"lbl"},g).textContent=c.n;
   const sub=el("text",{x,y:y+64,class:"sub"},g);sub.textContent="0 facts";
   const open=()=>cur&&openDossier(cur,c.id);
@@ -167,13 +172,29 @@ document.querySelectorAll(".sugg button").forEach(b=>b.onclick=()=>{$("#q").valu
 
 /* ---------------- library ---------------- */
 let LIB=[];
+const TCX=200,TCY=85;
 function thumb(cs){
-  const cx=200,cy=85;
-  let s=`<svg viewBox="0 0 400 170" aria-hidden="true"><ellipse cx="${cx}" cy="${cy}" rx="150" ry="70" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/><ellipse cx="${cx}" cy="${cy}" rx="85" ry="40" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/>`;
-  const P=c=>{const r=(55+(1-c.sim)*190);const a=c.ang*Math.PI/180;return[cx+Math.cos(a)*r*1.15,cy-6+Math.sin(a)*r*.4]};
-  cs.forEach(c=>{const[x,y]=P(c);s+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#2a313a"/>`});
-  cs.forEach(c=>{const[x,y]=P(c);s+=`<circle cx="${x}" cy="${y}" r="6" fill="#12161b" stroke="#a4adb8" stroke-width="1.2"/><text x="${x}" y="${y+18}" fill="#808a96" font-size="10" text-anchor="middle" font-family="Instrument Sans">${esc(c.n)}</text>`});
-  return s+`<circle cx="${cx}" cy="${cy}" r="18" fill="#ffb547" opacity=".15"/><circle cx="${cx}" cy="${cy}" r="10" fill="#ffb547"/></svg>`;
+  // each competitor sits on an elliptical orbit; animateThumbs() moves them around the center
+  let s=`<svg viewBox="0 0 400 170" aria-hidden="true"><ellipse cx="${TCX}" cy="${TCY}" rx="160" ry="66" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/><ellipse cx="${TCX}" cy="${TCY}" rx="95" ry="40" fill="none" stroke="#1a2027" stroke-dasharray="2 5"/>`;
+  cs.forEach(c=>{
+    const r=55+(1-c.sim)*190,u=logoUrl(c.d);
+    s+=`<g class="nd" data-a="${c.ang}" data-r="${r}"><line x1="0" y1="0" x2="0" y2="0" stroke="#2a313a"/><g class="pos"><circle r="11" fill="${u?"#fff":"#12161b"}" stroke="#a4adb8" stroke-width="1"/>${u?`<image href="${u}" x="-8" y="-8" width="16" height="16" style="clip-path:circle(50%)"/>`:`<text y="4" fill="#e9ecef" font-size="10" font-weight="700" text-anchor="middle" font-family="Instrument Sans">${esc((c.n[0]||"?").toUpperCase())}</text>`}<text y="24" fill="#808a96" font-size="10" text-anchor="middle" font-family="Instrument Sans">${esc(c.n.length>16?c.n.slice(0,15)+"…":c.n)}</text></g></g>`;
+  });
+  return s+`<circle cx="${TCX}" cy="${TCY}" r="18" fill="#ffb547" opacity=".15"/><circle cx="${TCX}" cy="${TCY}" r="10" fill="#ffb547"/></svg>`;
+}
+let orbitT0=performance.now(),orbitRaf=null;
+function animateThumbs(){
+  cancelAnimationFrame(orbitRaf);
+  const nodes=[...document.querySelectorAll(".thumb .nd")].map(n=>({n,a:+n.dataset.a,r:+n.dataset.r,line:n.querySelector("line"),pos:n.querySelector(".pos")}));
+  if(!nodes.length)return;
+  const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const step=t=>{
+    const spin=reduce?0:((t-orbitT0)/1000)*4; // degrees per second
+    for(const o of nodes){const a=(o.a+spin)*Math.PI/180,x=TCX+Math.cos(a)*o.r*1.15,y=TCY-4+Math.sin(a)*o.r*.42;
+      o.pos.setAttribute("transform",`translate(${x} ${y})`);o.line.setAttribute("x1",TCX);o.line.setAttribute("y1",TCY);o.line.setAttribute("x2",x);o.line.setAttribute("y2",y)}
+    if(!reduce&&document.querySelector(".page.on .thumb"))orbitRaf=requestAnimationFrame(step);
+  };
+  step(performance.now());  // place everything right away, then keep orbiting
 }
 async function loadLib(){
   try{LIB=await api("/api/library")}catch{return}
@@ -184,6 +205,7 @@ async function loadLib(){
     ${r.alerts?`<span class="alert"><i></i>${r.alerts} changes since your last visit</span>`:""}
     <div class="meta"><span>${esc(r.when)}</span><span class="mono">${r.comps} competitors</span><span class="mono">${r.facts} facts</span></div></div></a>`).join("")
     :`<p class="empty">No research yet. Run your first hunt from the dashboard.</p>`;
+  animateThumbs();
   if(location.hash.startsWith("#/map"))renderMapSide();
 }
 
@@ -326,7 +348,7 @@ async function openDossier(rid,cid){
   document.querySelectorAll(".node").forEach(n=>n.classList.remove("sel"));
   nodes[cid]&&nodes[cid].g.classList.add("sel");
   $("#dIn").innerHTML=`
-    <div class="d-top"><div class="logo">${esc(c.n[0]||"?")}</div><div><h2>${esc(c.n)}</h2><p>${esc(c.loc)}${c.rating>0?` · ${c.rating}★`:""} · ${c.facts} facts</p></div>
+    <div class="d-top"><div class="logo">${esc(c.n[0]||"?")}${logoImg(c.domain,"logo-img")}</div><div><h2>${esc(c.n)}</h2><p>${esc(c.loc)}${c.rating>0?` · ${c.rating}★`:""} · ${c.facts} facts</p></div>
     <button class="x" aria-label="Close" onclick="closeD()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     <p class="d-sum">${esc(c.sum)}</p>
     ${c.plans.length?`<div class="d-sec"><h4>Prices</h4><div class="plans">${c.plans.map(p=>`<div class="plan"><b>${esc(p[0])}</b><div class="p mono">${esc(fmt(p[1]))}<small>${p[1]!=="0"&&d.unit?" "+esc(d.unit):""}</small></div></div>`).join("")}</div></div>`:""}
@@ -359,7 +381,7 @@ async function showOnMap(id){
   const d=mkt(r);layer.clearLayers();$("#mempty").style.display="none";
   const mk={},pts=[];
   d.C.filter(c=>c.ll).forEach((c,i)=>{
-    const m=L.marker(c.ll,{icon:L.divIcon({className:"",html:`<div class="pin">${esc(c.n[0])}</div>`,iconSize:[34,34],iconAnchor:[17,17]}),title:c.n,riseOnHover:true}).bindPopup(popHtml(id,c),{maxWidth:280});
+    const m=L.marker(c.ll,{icon:L.divIcon({className:"",html:`<div class="pin">${esc(c.n[0])}${logoImg(c.domain,"pin-img")}</div>`,iconSize:[34,34],iconAnchor:[17,17]}),title:c.n,riseOnHover:true}).bindPopup(popHtml(id,c),{maxWidth:280});
     setTimeout(()=>{m.addTo(layer);const e=m.getElement();e&&gsap.from(e.firstChild,{scale:0,duration:.5,ease:"back.out(2)"})},150+i*90);
     mk[c.id]=m;pts.push(c.ll);
   });

@@ -189,6 +189,16 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   question that added data → "Knowledge growth" table on the Evidence page.
 - Deploy on Aiven Runtime was **cut for time**: demo runs on the laptop against Aiven Postgres.
 
+### Phase 3d: logos, living library, Upgrader agent ✅ (13:20–13:35)
+- **Logos**: `logoUrl(domain)` in app.js uses the site icon (Google favicon service); companies without their own
+  site (`*.place`) keep their initial. Shown in the live constellation, library cards, dossier and map pins.
+- **Library cards orbit**: each card's competitors slowly circle the center (`animateThumbs()`, respects
+  reduced-motion; positions set immediately so hidden tabs still render correctly). Thumbnail rows carry `d` (domain).
+- **Upgrader agent** (`hunt.upgrade_next()`, loop in `main.py`, `UPGRADE_INTERVAL_MIN`, default 10): every N
+  minutes it enriches the live research that has gone longest without new data (oldest `knowledge_log` entry).
+  Trigger now: `POST /api/upgrade/run`. Each round lands on the Evidence page growth chart.
+- A hunt whose failure couldn't be recorded (Wi-Fi fully down) stayed "running": `_guard` now retries the status write.
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

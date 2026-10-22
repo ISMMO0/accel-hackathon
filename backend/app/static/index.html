@@ -225,6 +225,12 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
 .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:.25}}
 
+/* logos */
+.logo{position:relative;overflow:hidden}
+.logo-img{position:absolute;inset:6px;width:calc(100% - 12px);height:calc(100% - 12px);border-radius:8px;background:#fff;object-fit:contain;padding:3px}
+.pin{position:relative;overflow:hidden}
+.pin-img{position:absolute;inset:3px;width:calc(100% - 6px);height:calc(100% - 6px);border-radius:50%;background:#fff;object-fit:contain;padding:3px}
+
 /* data tab + enrich */
 .dfilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .dfilters select,.dfilters input{background:var(--panel);border:1px solid var(--line-2);border-radius:10px;color:var(--ink);font:inherit;font-size:14px;padding:8px 12px}

@@ -238,7 +238,7 @@ class PgStore:
         """Every research with competitor count, fact count, unseen alerts and thumbnail data: one query."""
         return await self._all(
             "SELECT r.id, r.query, r.status, r.is_recorded, r.started_at, r.finished_at, "
-            "  coalesce(json_agg(json_build_object('n', c.name, 'sim', rc.similarity, 'ang', rc.angle) "
+            "  coalesce(json_agg(json_build_object('n', c.name, 'sim', rc.similarity, 'ang', rc.angle, 'd', c.domain) "
             "           ORDER BY rc.position) FILTER (WHERE c.id IS NOT NULL), '[]') AS thumb, "
             "  count(DISTINCT c.id) AS comps, "
             "  (SELECT count(*) FROM facts f WHERE f.company_id IN "
