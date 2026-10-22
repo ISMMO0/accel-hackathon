@@ -1,4 +1,5 @@
-"""Web search, page fetching (Jina → Firecrawl → H Company), embeddings and geocoding.
+"""Web search (Keenable → Tavily → Claude), page fetching (Keenable → Jina → Firecrawl → H Company),
+embeddings and geocoding.
 
 Each function has a real path and a fixture path; the fixture path is used whenever the hunt runs
 without a Claude key (see settings.live()).
@@ -54,12 +55,39 @@ async def search(query: str, n: int = 8) -> list[dict]:
     key = "search:" + hashlib.sha1(query.encode()).hexdigest()
     if hit := await cache.get(key):
         return hit
-    results = await (_tavily(query, n) if settings.tavily_api_key else _claude_search(query))
+    results = []
+    for fn in (_keenable_search, _tavily, _claude_search):  # first provider that answers wins
+        try:
+            results = await fn(query, n)
+            if results:
+                break
+        except Exception:
+            continue
     await cache.set(key, results, ttl_s=6 * 3600)
     return results
 
 
+KEENABLE = "https://api.keenable.ai/v1"
+
+
+def _keenable_headers() -> dict:
+    # With a key: credits + no hourly cap. Without: public endpoint, 1,000 requests/hour per IP.
+    if settings.keenable_api_key:
+        return {"X-API-Key": settings.keenable_api_key}
+    return {"X-Keenable-Title": "Launch Spy"}
+
+
+async def _keenable_search(query: str, n: int) -> list[dict]:
+    path = "/search" if settings.keenable_api_key else "/search/public"
+    r = await http().post(KEENABLE + path, headers=_keenable_headers(), json={"query": query, "mode": "realtime"})
+    r.raise_for_status()
+    return [{"title": x.get("title", ""), "url": x["url"], "content": x.get("description", "")}
+            for x in r.json().get("results", [])[:n]]
+
+
 async def _tavily(query: str, n: int) -> list[dict]:
+    if not settings.tavily_api_key:
+        return []
     r = await http().post("https://api.tavily.com/search",
                           headers={"Authorization": f"Bearer {settings.tavily_api_key}"},
                           json={"query": query, "max_results": n, "search_depth": "basic"})
@@ -68,7 +96,7 @@ async def _tavily(query: str, n: int) -> list[dict]:
             for x in r.json().get("results", [])]
 
 
-async def _claude_search(query: str) -> list[dict]:
+async def _claude_search(query: str, n: int = 8) -> list[dict]:
     """No Tavily key: let Claude's server-side web search tool run the query and keep its result list."""
     from anthropic import AsyncAnthropic
 
@@ -107,12 +135,12 @@ def fixture_pages(company: dict) -> list[tuple[str, str]]:
 
 
 async def fetch(url: str) -> tuple[str, str]:
-    """Returns (text, fetcher). Tries cache → Jina → Firecrawl → H Company. Raises if all fail."""
+    """Returns (text, fetcher). Tries cache → Keenable → Jina → Firecrawl → H Company. Raises if all fail."""
     key = "page:" + hashlib.sha1(url.encode()).hexdigest()
     if hit := await cache.get(key):
         return hit["text"], "cache"
     errors = []
-    for name, fn in (("jina", _jina), ("firecrawl", _firecrawl), ("h", _h_browser)):
+    for name, fn in (("keenable", _keenable_fetch), ("jina", _jina), ("firecrawl", _firecrawl), ("h", _h_browser)):
         try:
             text = await fn(url)
             if text and len(text) > 200:
@@ -121,6 +149,15 @@ async def fetch(url: str) -> tuple[str, str]:
         except Exception as e:  # try the next fetcher
             errors.append(f"{name}: {e}")
     raise RuntimeError("; ".join(errors) or "no fetcher available")
+
+
+async def _keenable_fetch(url: str) -> str:
+    path = "/fetch" if settings.keenable_api_key else "/fetch/public"
+    async with _fetch_sem:
+        r = await http().get(KEENABLE + path, headers=_keenable_headers(),
+                             params={"url": url, "live": "true", "max_chars": settings.page_char_limit}, timeout=25)
+    r.raise_for_status()
+    return r.json().get("content", "")
 
 
 async def _jina(url: str) -> str:

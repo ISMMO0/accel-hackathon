@@ -21,6 +21,7 @@ class Settings:
     # keys (empty = mock)
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY"))
+    keenable_api_key: str = field(default_factory=lambda: _env("KEENABLE_API_KEY"))
     tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
     firecrawl_api_key: str = field(default_factory=lambda: _env("FIRECRAWL_API_KEY"))
     jina_api_key: str = field(default_factory=lambda: _env("JINA_API_KEY"))
@@ -43,12 +44,12 @@ class Settings:
     max_competitors: int = field(default_factory=lambda: int(_env("MAX_COMPETITORS", "8")))
     pages_per_company: int = field(default_factory=lambda: int(_env("PAGES_PER_COMPANY", "4")))
     page_char_limit: int = field(default_factory=lambda: int(_env("PAGE_CHAR_LIMIT", "24000")))
-    hunt_timeout_s: int = field(default_factory=lambda: int(_env("HUNT_TIMEOUT_S", "90")))
-    researcher_timeout_s: int = field(default_factory=lambda: int(_env("RESEARCHER_TIMEOUT_S", "25")))
+    hunt_timeout_s: int = field(default_factory=lambda: int(_env("HUNT_TIMEOUT_S", "180")))
+    researcher_timeout_s: int = field(default_factory=lambda: int(_env("RESEARCHER_TIMEOUT_S", "60")))
     llm_concurrency: int = field(default_factory=lambda: int(_env("LLM_CONCURRENCY", "8")))
     fetch_concurrency: int = field(default_factory=lambda: int(_env("FETCH_CONCURRENCY", "12")))
     h_concurrency: int = field(default_factory=lambda: int(_env("H_CONCURRENCY", "3")))
-    memory_threshold: float = field(default_factory=lambda: float(_env("MEMORY_THRESHOLD", "0.85")))
+    memory_threshold: float = field(default_factory=lambda: float(_env("MEMORY_THRESHOLD", "0.6")))
 
     # behaviour
     mock_delay: float = field(default_factory=lambda: float(_env("MOCK_DELAY", "1")))

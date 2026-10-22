@@ -43,7 +43,7 @@ async def main():
             check(len(lib) >= 2, f"library seeded with {len(lib)} researches")
             check(any(r["alerts"] for r in lib), "seeded research has Watcher alerts")
 
-            m = (await c.post("/api/research", json={"query": "coffee shop near Batignolles"})).json()
+            m = (await c.post("/api/research", json={"query": "Specialty coffee shop in Paris 17e near Batignolles"})).json()
             check("match" in m, f"memory match found: {m.get('match', {}).get('q')}")
 
             t0 = time.perf_counter()
