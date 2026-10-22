@@ -465,8 +465,9 @@ async function showOnMap(id){
     mk[c.id]=m;pts.push(c.ll);
   });
   const bp=d.biz_plan&&d.biz_plan.location;
-  if(bp&&bp.ll){L.circle(bp.ll,{radius:350,color:"#5fe0b0",weight:2,fillColor:"#5fe0b0",fillOpacity:.22}).bindPopup(`<div class="pop"><h3>Best spot for you</h3><div class="l">${esc(bp.area)}</div><p style="font-size:13px">${esc(bp.why)}</p></div>`).addTo(layer);
-    L.marker(bp.ll,{icon:L.divIcon({className:"",html:`<div class="pin best">★</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:900}).bindPopup(`<div class="pop"><h3>Best spot for you</h3><div class="l">${esc(bp.area)}</div></div>`).addTo(layer);pts.push(bp.ll)}
+  if(bp&&bp.ll){  // the green zone and its star open the business plan on the right
+    L.circle(bp.ll,{radius:350,color:"#5fe0b0",weight:2,fillColor:"#5fe0b0",fillOpacity:.22}).on("click",()=>openPlan(id)).addTo(layer);
+    L.marker(bp.ll,{icon:L.divIcon({className:"",html:`<div class="pin best" title="Open your business plan">★</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:900}).bindTooltip("Best spot for you · click for your business plan",{direction:"top",offset:[0,-16]}).on("click",()=>openPlan(id)).addTo(layer);pts.push(bp.ll)}
   if(d.you&&d.you.ll){L.marker(d.you.ll,{icon:L.divIcon({className:"",html:`<div class="pin you">YOU</div>`,iconSize:[34,34],iconAnchor:[17,17]}),zIndexOffset:1000}).bindPopup(`<div class="pop"><h3>Your planned spot</h3><div class="l">Inside the gap the Strategist found</div></div>`).addTo(layer);pts.push(d.you.ll)}
   if(pts.length)map.flyToBounds(L.latLngBounds(pts).pad(.25),{duration:1.2,maxZoom:16});
   else{$("#mempty").textContent="No addresses found for this research yet.";$("#mempty").style.display=""}
