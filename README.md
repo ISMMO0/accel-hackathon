@@ -4,7 +4,7 @@
 
 Built in one day at **Accel AI Innovate Paris** (22 October 2026), challenge *Future Founders: Data-Centric Agents*.
 
-> **Live app:** _deploying on Aiven Runtime, link coming here_ · **Run locally:** see [Run it](#run-it)
+> **Live app:** [https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app) (Aiven Runtime) · **Run locally:** see [Run it](#run-it)
 
 ![Research report: competitors orbiting, your ideal business plan, the market gap](docs/images/report.png)
 
