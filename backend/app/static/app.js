@@ -1,10 +1,12 @@
 /* Before You Start frontend: renders everything from the API and the live event stream. */
 const AG={
-  scout:{n:"Scout",c:"#7cc4ff",job:"Finds competitors"},
-  research:{n:"Researcher",c:"#c79bff",job:"Reads sites with H agents"},
+  scout:{n:"Scout",c:"#7cc4ff",job:"Finds competitors on the live web"},
+  research:{n:"Researcher",c:"#c79bff",job:"Reads their sites, menus and reviews"},
   analyst:{n:"Analyst",c:"#5fe0b0",job:"Queries data, checks facts"},
-  strat:{n:"Strategist",c:"#ffb547",job:"Works out how to win"},
-  watch:{n:"Watcher",c:"#ff7a7a",job:"Tracks changes over time"},
+  strat:{n:"Strategist",c:"#ffb547",job:"Finds the gap, how to win"},
+  planner:{n:"Planner",c:"#f6d36b",job:"Writes and updates your business plan"},
+  watch:{n:"Watcher",c:"#ff7a7a",job:"Flags competitors' changes"},
+  upgrader:{n:"Upgrader",c:"#9be38a",job:"Every 10 min: enriches your stalest project"},
 };
 const $=s=>document.querySelector(s);
 const NS="http://www.w3.org/2000/svg";
@@ -29,6 +31,7 @@ const mkt=r=>({...r.market,C:r.C});
 let LIVE=false,VOICE=false;
 api("/api/health").then(h=>{
   LIVE=h.live.llm;VOICE=!!h.live.voice;
+  const up=$("#ag-upgrader .st");if(up)up.textContent=h.upgrader_every_min?`Every ${h.upgrader_every_min} min: enriches your stalest project`:"Off";
   $("#liveTag").textContent=LIVE?"Live agents":"Recorded data";
   $("#liveTag").title=Object.entries(h.live).map(([k,v])=>`${k}: ${v?"live":"mock"}`).join(" · ");
 }).catch(()=>{});
@@ -42,7 +45,7 @@ Object.entries(AG).forEach(([k,a],i)=>{
   el("circle",{r:13,fill:"none",stroke:a.c,"stroke-opacity":.3},g);
   el("circle",{r:6.5,fill:a.c},g);
   el("text",{class:"pipl",y:-20,"text-anchor":"middle"},g).textContent=a.n;
-  const ang=i/5*Math.PI*2;gsap.set(g,{x:CX+Math.cos(ang)*150,y:CY+Math.sin(ang)*100});
+  const ang=i/Object.keys(AG).length*Math.PI*2;gsap.set(g,{x:CX+Math.cos(ang)*150,y:CY+Math.sin(ang)*100});
   pips[k]=g;
 });
 let idle=true;
