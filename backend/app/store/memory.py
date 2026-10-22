@@ -61,6 +61,11 @@ class MemoryStore:
     async def update_research(self, rid, **fields):
         self.researches[rid].update(fields)
 
+    async def mark_interrupted(self):
+        for r in self.researches.values():
+            if r["status"] == "running":
+                r["status"] = "interrupted"
+
     async def find_similar(self, embedding, threshold):
         best = None
         for r in self.researches.values():
@@ -154,12 +159,24 @@ class MemoryStore:
         await self.add_facts([dict(company_id=company_id, research_id=research_id, snapshot_id=snap["id"],
                                    kind=f["kind"], text=f["text"], value=f["value"], source=url) for f in facts])
 
+    async def page_memory(self, company_ids):
+        ids, out = set(company_ids), {}
+        for s in self.snapshots:  # later snapshots overwrite earlier ones
+            if s["company_id"] in ids:
+                facts = [{"kind": f["kind"], "text": f["text"], "value": f["value"]} for f in self.facts
+                         if f["company_id"] == s["company_id"] and f["source"] == s["url"]]
+                out[(s["company_id"], s["url"])] = {"hash": s["content_hash"], "facts": facts}
+        return out
+
     async def report_facts(self, company_ids, per_company=8):
         out = {}
         for cid in company_ids:
             fs = [dict(f) for f in self.facts if f["company_id"] == cid]
             out[cid] = {"count": len(fs), "latest": fs[-per_company:]}
         return out
+
+    async def eval_rows(self):
+        return []
 
     async def library_rows(self):
         out = []

@@ -4,6 +4,7 @@ Every step writes to the store and emits an event before moving on, so nothing i
 browser disconnects and a failed competitor never fails the whole run.
 """
 import asyncio
+import hashlib
 import logging
 import re
 import time
@@ -158,6 +159,8 @@ async def _fresh(rid: str, query: str):
     queries = [query, f"{query} competitors", f"best alternatives {query}"]
     await emit(rid, "scout", "agent_status", f"Running {len(queries)} searches in parallel",
                " · ".join(f"“{q}”" for q in queries), status="Searching the web")
+    # What the model already knows, in parallel with the live web search (the Scout reconciles both).
+    known_task = asyncio.create_task(llm().known_players(query, rid))
     batches = await asyncio.gather(*(web.search(q) for q in queries), return_exceptions=True)
     seen, results = set(), []
     for b in batches:
@@ -171,7 +174,11 @@ async def _fresh(rid: str, query: str):
     if web.live():
         await emit(rid, "scout", "agent_status", f"{len(results)} web results, reading {len(guides)} guides",
                    " · ".join(_domain(g["url"]) for g in guides), status="Picking real competitors")
-    scout = await llm().scout(query, results, rid, guides=guides)
+    try:
+        known = await known_task
+    except Exception:
+        known = []
+    scout = await llm().scout(query, results, rid, guides=guides, known=known)
     later(rid, lambda: store.update_research(rid, market_label=scout.market_label))
 
     cands, taken, companies = scout.candidates[: settings.max_competitors], set(), []
@@ -199,18 +206,29 @@ async def _fresh(rid: str, query: str):
     # Map pins: geocode the Scout's addresses in the background while the researchers read.
     geo = asyncio.create_task(_geocode_all(rid, companies, ready))
 
+    # Memory: pages we already read for these competitors (one query, overlaps with the Scout's writes).
+    try:
+        memory = await store.page_memory([c["id"] for c in companies])
+    except Exception:
+        memory = {}
+    known = sum(1 for (cid, _) in memory if any(c["id"] == cid for c in companies))
+    if known:
+        await emit(rid, "analyst", "memory_match", f"Memory: {known} pages already read for these competitors",
+                   "unchanged pages are reused without calling Claude", status="Loading memory")
+
     # 2. Researchers, all in parallel; one failing never stops the others
     await emit(rid, "research", "agent_status", "", "", status=f"Reading pages for {len(companies)} competitors")
-    await asyncio.gather(*(_research_company(rid, query, c, i, ready) for i, c in enumerate(companies)))
+    await asyncio.gather(*(_research_company(rid, query, c, i, ready, memory) for i, c in enumerate(companies)))
     await geo
 
     # 3 + 4. Analyst, Strategist
     await _analyze_and_strategize(rid, query, companies, ready)
 
-    await _finish(rid, t0, mode="fresh", companies=companies)
+    await _finish(rid, t0, mode="fresh", companies=companies, reused=sum(c.get("reused", 0) for c in companies))
 
 
-async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asyncio.Task | None = None):
+async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asyncio.Task | None = None,
+                            memory: dict | None = None):
     """Fetch + read one competitor's pages. Facts go into comp["facts"] at once and to the DB in the background."""
     store = get_store()
     comp.setdefault("facts", [])
@@ -237,6 +255,14 @@ async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asy
                 pages = [(u, t, "fixture") for u, t in web.fixture_pages(comp)]
 
             async def read(url, text, fetcher) -> int:
+                seen = (memory or {}).get((comp["id"], url))
+                if seen and seen["hash"] == hashlib.sha256(text.encode()).hexdigest() and seen["facts"]:
+                    rows = seen["facts"]  # unchanged since we last read it: reuse, no Claude call
+                    comp["facts"] += [{**r, "source": url} for r in rows]
+                    comp["reused"] = comp.get("reused", 0) + len(rows)
+                    await emit(rid, "research", "fact_added", f"{comp['name']}: unchanged, {len(rows)} facts from memory",
+                               f"{url} · memory", company_id=comp["id"], count=len(rows), reused=True)
+                    return len(rows)
                 ext = await llm().extract(query, comp, url, text, rid)
                 rows = [{"kind": f.kind, "text": f.text, "value": f.value} for f in ext.facts]
                 comp["facts"] += [{**r, "source": url} for r in rows]
@@ -338,7 +364,8 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], r
     await emit(rid, "strat", "insight", s.plan, f"{len(companies)} dossiers written")
 
 
-async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: list[dict] | None = None):
+async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: list[dict] | None = None,
+                  base_stats: dict | None = None):
     store = get_store()
     secs = round(time.perf_counter() - t0, 1)  # what the user waited for
     await settle(rid)  # every background write has landed before we call it done
@@ -347,8 +374,11 @@ async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: li
     else:
         comps = await store.research_companies(rid)
         n_comps, facts = len(comps), await store.count_facts([c["id"] for c in comps])
+    stats = await store.llm_stats(rid)
+    if base_stats:  # continue mode: report this run's calls and cost, not the research's lifetime totals
+        stats = {k: round(stats[k] - base_stats.get(k, 0), 4) for k in stats}
     totals = {"comps": n_comps, "facts": facts, "srcs": max(1, facts // 3), "secs": secs, "reused": reused,
-              "llm": await store.llm_stats(rid)}
+              "llm": stats}
     await store.update_research(rid, status="done", finished_at=now(), totals=totals)
     await emit(rid, "strat", "run_done", "", "", mode=mode, **totals)
 
@@ -356,8 +386,8 @@ async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: li
 # ---------------------------------------------------------------- continue + watcher
 async def _continue(rid: str, query: str):
     store, t0 = get_store(), time.perf_counter()
-    r = await store.get_research(rid)
-    comps = await store.research_companies(rid)
+    r, comps, base_stats = await asyncio.gather(store.get_research(rid), store.research_companies(rid),
+                                                store.llm_stats(rid))
     reused = await store.count_facts([c["id"] for c in comps])
     await emit(rid, "analyst", "memory_match", f"Found your research from {_ago(r['finished_at'])}. Reusing "
                f"{reused} facts from memory instead of starting over", "pgvector similarity · postgres",
@@ -376,7 +406,7 @@ async def _continue(rid: str, query: str):
         m = (await store.get_research(rid))["market"]
         await emit(rid, "strat", "insight", f"Plan still holds: {m.get('plan', '').removeprefix('Plan: ')}",
                    f"{len(changed)} dossiers updated")
-    await _finish(rid, t0, mode="continue", reused=reused)
+    await _finish(rid, t0, mode="continue", reused=reused, base_stats=base_stats)
 
 
 async def check_changes(rid: str, comps: list[dict]) -> list[str]:
@@ -398,32 +428,37 @@ async def check_changes(rid: str, comps: list[dict]) -> list[str]:
                 await emit(rid, "watch", "no_change", f"{c['name']}: no change since last snapshot",
                            "snapshot diff · skipped re-reading pages", company_id=c["id"])
             return
-        facts = await store.facts_for_company(c["id"], limit=200)
-        urls = sorted({f["source"] for f in facts})[: settings.pages_per_company]
-        diffs = 0
-        for url in urls:
-            page = await _fetch_page(url)
-            if not page:
-                continue
-            prev = await store.latest_snapshot(c["id"], url)
-            snap = await store.add_snapshot(c["id"], url, page[1], page[2])
-            if prev and prev["content_hash"] != snap["content_hash"]:
-                diffs += 1
-                ext = await llm().extract(c["name"], c, url, page[1], rid)
-                await store.add_facts([dict(company_id=c["id"], research_id=rid, snapshot_id=snap["id"], kind=f.kind,
-                                            text=f.text, value=f.value, source=url) for f in ext.facts])
-                note = ext.facts[0].text if ext.facts else f"{url} changed"
-                await store.add_alert(c["id"], note)
-                await store.update_link(rid, c["id"], {"tl": [["just now", note]], "change": note[:40]})
-                await emit(rid, "watch", "change_detected", f"{c['name']} changed: {note}", f"snapshot diff · {url}",
-                           company_id=c["id"])
+        urls = [u for (cid, u) in memory if cid == c["id"]][: settings.pages_per_company]
+        pages = await asyncio.gather(*(_fetch_page(u) for u in urls))  # all pages at once
+
+        async def diff(page) -> int:
+            url, text, fetcher = page
+            seen = memory[(c["id"], url)]
+            if hashlib.sha256(text.encode()).hexdigest() == seen["hash"]:
+                return 0  # identical page: nothing to read, nothing to write
+            # The page differs, but dynamic pages (stores, reviews) change on every visit: ask what MATTERS.
+            found = await llm().changes(c, url, [f["text"] for f in seen["facts"]], text, rid)
+            rows = [{"kind": "change", "text": t, "value": ""} for t in found]
+            later(rid, lambda: store.save_page(c["id"], rid, url, text, fetcher, rows))  # new fingerprint
+            if not found:
+                return 0
+            note = found[0]
+            later(rid, lambda: store.add_alert(c["id"], note))
+            later(rid, lambda: store.update_link(rid, c["id"], {"tl": [["just now", note]], "change": note[:40]}))
+            await emit(rid, "watch", "change_detected", f"{c['name']} changed: {note}", f"snapshot diff · {url}",
+                       company_id=c["id"])
+            return 1
+
+        diffs = sum(await asyncio.gather(*(diff(p) for p in pages if p)))
         if diffs:
             changed.append(c["id"])
         else:
             await emit(rid, "watch", "no_change", f"{c['name']}: no change since last snapshot",
-                       f"{len(urls)} pages compared", company_id=c["id"])
+                       f"{sum(1 for p in pages if p)} pages compared", company_id=c["id"])
 
+    memory = await store.page_memory([c["id"] for c in comps]) if web.live() else {}
     await asyncio.gather(*(one(c) for c in comps), return_exceptions=True)
+    await settle(rid)
     return changed
 
 

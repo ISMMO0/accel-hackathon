@@ -75,6 +75,9 @@ class PgStore:
         sets = ", ".join(f"{c}=${i + 2}" for i, c in enumerate(cols))
         await self._exec(f"UPDATE researches SET {sets} WHERE id=$1", rid, *[fields[c] for c in cols])
 
+    async def mark_interrupted(self):
+        await self._exec("UPDATE researches SET status='interrupted' WHERE status='running'")
+
     async def find_similar(self, embedding, threshold):
         r = await self._one(
             f"SELECT {self._R}, 1 - (query_embedding <=> $1::vector) AS score FROM researches "
@@ -181,6 +184,16 @@ class PgStore:
             [new_id() for _ in facts], [f["kind"] for f in facts], [f["text"] for f in facts],
             [f["value"] for f in facts], hashlib.sha256(text.encode()).hexdigest())
 
+    async def page_memory(self, company_ids):
+        """{(company_id, url): {"hash": h, "facts": [...]}} for pages already read: one query."""
+        rows = await self._all(
+            "SELECT DISTINCT ON (s.company_id, s.url) s.company_id, s.url, s.content_hash, "
+            "  coalesce((SELECT json_agg(json_build_object('kind', f.kind, 'text', f.text, 'value', f.value)) "
+            "            FROM facts f WHERE f.company_id = s.company_id AND f.source = s.url), '[]') AS facts "
+            "FROM snapshots s WHERE s.company_id = ANY($1::text[]) "
+            "ORDER BY s.company_id, s.url, s.fetched_at DESC", list(company_ids))
+        return {(r["company_id"], r["url"]): {"hash": r["content_hash"], "facts": r["facts"]} for r in rows}
+
     async def report_facts(self, company_ids, per_company=8):
         """{company_id: {"count": n, "latest": [facts...]}} in one query."""
         rows = await self._all(
@@ -194,6 +207,16 @@ class PgStore:
             out[r["company_id"]]["count"] = r["n"]
             out[r["company_id"]]["latest"].append(r)
         return out
+
+    async def eval_rows(self):
+        """Rows of the most recent evaluation run (empty if the eval was never run)."""
+        try:
+            return await self._all("SELECT market, system, expected, found, recall, named, facts, sourced_facts, "
+                                   "secs, llm_calls, cost_usd, reused_facts, run_id, created_at FROM eval_runs "
+                                   "WHERE run_id = (SELECT run_id FROM eval_runs ORDER BY created_at DESC LIMIT 1) "
+                                   "ORDER BY id")
+        except asyncpg.UndefinedTableError:
+            return []
 
     async def library_rows(self):
         """Every research with competitor count, fact count, unseen alerts and thumbnail data: one query."""

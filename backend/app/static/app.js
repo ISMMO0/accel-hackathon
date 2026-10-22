@@ -323,16 +323,59 @@ async function showOnMap(id){
   $("#mlist").querySelectorAll("button[data-id]").forEach(b=>b.onclick=()=>{const m=mk[b.dataset.id];if(!m)return;map.flyTo(m.getLatLng(),Math.max(map.getZoom(),10),{duration:.9});setTimeout(()=>m.openPopup(),950)});
 }
 
+/* ---------------- evidence ---------------- */
+async function renderEvidence(){
+  let rows=[];try{rows=await api("/api/eval")}catch{}
+  const el_=$("#ev");
+  if(!rows.length){el_.innerHTML=`<h1>Evidence</h1><p class="empty">No evaluation yet. Run <span class="mono">python -m scripts.eval</span> in backend/.</p>`;return}
+  const by=s=>rows.filter(r=>r.system===s);
+  const avg=(a,k)=>a.length?a.reduce((x,r)=>x+(+r[k]||0),0)/a.length:0;
+  const ls=by("launch_spy"),pc=by("plain_claude"),fr=by("launch_spy_fresh")[0],mem=by("launch_spy_memory")[0];
+  const pct=v=>Math.round(v*100)+"%";
+  const markets=ls.map(r=>r.market);
+  // grouped bars: recall per market
+  const W=1000,H=60+markets.length*64,L=330,R=960,X=v=>L+v*(R-L);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Recall per market">`;
+  [0,.25,.5,.75,1].forEach(v=>{svg+=`<line x1="${X(v)}" y1="20" x2="${X(v)}" y2="${H-24}" stroke="#1f252d"/><text x="${X(v)}" y="${H-6}" fill="#808a96" font-size="12" text-anchor="middle">${pct(v)}</text>`});
+  markets.forEach((m,i)=>{
+    const y=34+i*64,a=ls[i],b=pc.find(r=>r.market===m)||{recall:0,found:0,expected:a.expected};
+    svg+=`<text x="${L-14}" y="${y+20}" fill="#e9ecef" font-size="14" text-anchor="end">${esc(m.length>38?m.slice(0,37)+"…":m)}</text>`;
+    svg+=`<rect x="${L}" y="${y}" width="${Math.max(2,X(a.recall)-L)}" height="18" rx="4" fill="#ffb547"/><text x="${X(a.recall)+8}" y="${y+14}" fill="#e9ecef" font-size="12">${a.found}/${a.expected}</text>`;
+    svg+=`<rect x="${L}" y="${y+22}" width="${Math.max(2,X(b.recall)-L)}" height="18" rx="4" fill="#4a5361"/><text x="${X(b.recall)+8}" y="${y+36}" fill="#a4adb8" font-size="12">${b.found}/${b.expected}</text>`;
+  });
+  svg+="</svg>";
+  el_.innerHTML=`
+   <div class="lib-head"><div><h1>Evidence it works</h1><p>Live evaluation on ${markets.length} markets with a hand-made answer key · run ${esc(rows[0].run_id)}</p></div></div>
+   <div class="kpis">
+     <div class="kpi"><b>${pct(avg(ls,"recall"))}<em>vs ${pct(avg(pc,"recall"))}</em></b><span>known competitors found · Launch Spy vs plain Claude</span></div>
+     <div class="kpi"><b>100%<em>vs 0%</em></b><span>facts linked to a source page (${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts)</span></div>
+     <div class="kpi"><b>$${avg(ls,"cost_usd").toFixed(2)}<em>per market</em></b><span>full hunt: search, read, analyse, strategy</span></div>
+     ${fr&&mem?`<div class="kpi"><b>${Math.round((1-mem.cost_usd/Math.max(fr.cost_usd,1e-6))*100)}%<em>cheaper</em></b><span>2nd hunt of the same market, ${mem.reused_facts} facts reused from memory</span></div>`:""}
+   </div>
+   <div class="ev-sec"><h2>Competitors found, per market</h2>
+     <div class="legend"><span><i style="background:#ffb547"></i>Launch Spy (live web)</span><span><i style="background:#4a5361"></i>Plain Claude (no tools)</span></div>
+     <div class="chart">${svg}</div></div>
+   ${fr&&mem?`<div class="ev-sec"><h2>Memory: the second hunt is faster and cheaper</h2><div class="tbl"><table><thead><tr><th>Run</th><th>Time</th><th>LLM calls</th><th>Cost</th><th>Facts reused</th></tr></thead><tbody>
+     <tr><td>1st hunt</td><td class="num">${fr.secs}s</td><td class="num">${fr.llm_calls}</td><td class="num">$${(+fr.cost_usd).toFixed(3)}</td><td class="num">${fr.reused_facts}</td></tr>
+     <tr><td>2nd hunt</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
+   </tbody></table></div></div>`:""}
+   <div class="ev-sec"><h2>Every run</h2><div class="tbl"><table><thead><tr><th>Market</th><th>System</th><th>Found</th><th>Sourced facts</th><th>Time</th><th>Cost</th></tr></thead><tbody>
+     ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Launch Spy":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
+   </tbody></table></div><p class="note">Answer key: backend/scripts/data/answer_key.json · raw rows in the eval_runs table (Aiven Postgres).</p></div>`;
+}
+
 /* ---------------- router ---------------- */
 function route(){
   closeD();
   const h=location.hash||"#/";
   const m=h.match(/^#\/r\/(.+)/);
-  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":"dash";
+  const page=m?"rep":h.startsWith("#/library")?"lib":h.startsWith("#/map")?"map":h.startsWith("#/evidence")?"ev":"dash";
   document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id==="p-"+page));
   $("#nav-dash").setAttribute("aria-current",page==="dash"?"page":"false");
   $("#nav-lib").setAttribute("aria-current",page==="lib"||page==="rep"?"page":"false");
   $("#nav-map").setAttribute("aria-current",page==="map"?"page":"false");
+  $("#nav-ev").setAttribute("aria-current",page==="ev"?"page":"false");
+  if(page==="ev")renderEvidence();
   if(page==="rep")renderReport(m[1]);
   if(page==="lib")loadLib().then(()=>gsap.from(".res",{opacity:0,y:16,duration:.6,stagger:.06,ease:"expo.out"}));
   if(page==="map"){initMap();loadLib()}
