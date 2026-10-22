@@ -453,13 +453,20 @@ async function renderEvidence(){
     svg+=`<rect x="${L}" y="${y+22}" width="${Math.max(2,X(b.recall)-L)}" height="18" rx="4" fill="#4a5361"/><text x="${X(b.recall)+8}" y="${y+36}" fill="#a4adb8" font-size="12">${b.found}/${b.expected}</text>`;
   });
   svg+="</svg>";
+  let v={};try{v=await api("/api/value")}catch{}
+  const hours=Math.round((v.pages_read||0)*10/60),perProj=v.projects?(v.spend/v.projects):0,fresh=v.facts?Math.round(v.fresh_facts/v.facts*100):0;
   el_.innerHTML=`
-   <div class="lib-head"><div><h1>Evidence it works</h1><p>Live evaluation on ${markets.length} markets with a hand-made answer key · run ${esc(rows[0].run_id)}</p></div></div>
+   <div class="lib-head"><div><h1>What Launch Spy delivered</h1><p>Across your ${v.projects||0} projects, read live from Aiven Postgres.</p></div></div>
    <div class="kpis">
-     <div class="kpi"><b>${pct(avg(ls,"recall"))}<em>vs ${pct(avg(pc,"recall"))}</em></b><span>known competitors found · Launch Spy vs plain Claude</span></div>
-     <div class="kpi"><b>100%<em>vs 0%</em></b><span>facts linked to a source page (${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts)</span></div>
-     <div class="kpi"><b>$${avg(ls,"cost_usd").toFixed(2)}<em>per market</em></b><span>full hunt: search, read, analyse, strategy</span></div>
-     ${fr&&mem?`<div class="kpi"><b>${Math.round((1-mem.cost_usd/Math.max(fr.cost_usd,1e-6))*100)}%<em>cheaper</em></b><span>re-checking a known market (Continue research), ${mem.reused_facts} facts reused from memory</span></div>`:""}
+     <div class="kpi"><b>~${hours} h<em>saved</em></b><span>${v.pages_read||0} pages read for you (≈10 min of manual reading each)</span></div>
+     <div class="kpi"><b>${(v.prices||0).toLocaleString()}<em>prices</em></b><span>menu items, plans and offers collected across ${v.competitors||0} competitors</span></div>
+     <div class="kpi"><b>${(v.facts||0).toLocaleString()}<em>facts</em></b><span>every one linked to its source · ${v.sources||0} distinct sources</span></div>
+     <div class="kpi"><b>${fresh}%<em>fresh</em></b><span>of facts read in the last 24h, not a model's training memory</span></div>
+     <div class="kpi"><b>$${perProj.toFixed(2)}<em>per project</em></b><span>AI cost, vs hours of an analyst's time · ${Math.round(v.avg_secs||0)}s per hunt</span></div>
+   </div>
+   <div class="ev-sec" id="growth"></div>
+   <div class="ev-sec"><h2>Benchmark: what memory knows vs what Launch Spy adds</h2>
+     <p class="note" style="margin:0 0 12px;font-size:14px">Plain Claude names famous brands from memory (${pct(avg(pc,"recall"))} of our answer key). Launch Spy finds most of them too (${pct(avg(ls,"recall"))}) and adds what memory can't: <b>a source for 100% of its ${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts</b> (plain Claude: none), today's prices, and local businesses.${fr&&mem?` Re-checking a known market reused ${mem.reused_facts} facts for $${(+mem.cost_usd).toFixed(2)}.`:""}</p>
    </div>
    <div class="ev-sec"><h2>Competitors found, per market</h2>
      <div class="legend"><span><i style="background:#ffb547"></i>Launch Spy (live web)</span><span><i style="background:#4a5361"></i>Plain Claude (no tools)</span></div>
@@ -468,7 +475,6 @@ async function renderEvidence(){
      <tr><td>1st hunt</td><td class="num">${fr.secs}s</td><td class="num">${fr.llm_calls}</td><td class="num">$${(+fr.cost_usd).toFixed(3)}</td><td class="num">${fr.reused_facts}</td></tr>
      <tr><td>Continue research</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
    </tbody></table></div></div>`:""}
-   <div class="ev-sec" id="growth"></div>
    <div class="ev-sec"><h2>Every run</h2><div class="tbl"><table><thead><tr><th>Market</th><th>System</th><th>Found</th><th>Sourced facts</th><th>Time</th><th>Cost</th></tr></thead><tbody>
      ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Launch Spy":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
    </tbody></table></div><p class="note">Answer key: backend/scripts/data/answer_key.json · raw rows in the eval_runs table (Aiven Postgres).</p></div>`;
@@ -478,9 +484,9 @@ async function renderGrowth(){
   let k=[];try{k=await api("/api/knowledge")}catch{}
   const by={};k.forEach(r=>(by[r.research_id]=by[r.research_id]||{q:r.query,pts:[]}).pts.push(r));
   const series=Object.values(by).filter(s=>s.pts.length>1);
-  if(!series.length){$("#growth").innerHTML=`<h2>Knowledge growth</h2><p class="note">Run "Enrich" or ask questions on a research: every round that adds data is logged here.</p>`;return}
+  if(!series.length){$("#growth").innerHTML=`<h2>Your projects keep getting smarter</h2><p class="note">Run "Enrich" or ask questions on a research: every round that adds data is logged here.</p>`;return}
   const max=Math.max(...series.flatMap(s=>s.pts.map(p=>p.facts)));
-  $("#growth").innerHTML=`<h2>Knowledge growth: every round adds data</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
+  $("#growth").innerHTML=`<h2>Your projects keep getting smarter</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
 }
 
 /* ---------------- voice input: Gradium speech-to-text (server key), Chrome built-in as fallback ---------------- */

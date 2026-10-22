@@ -237,6 +237,12 @@ async def research_facts(rid: str):
              "item": f.get("item", ""), "value": f["value"], "text": f["text"], "source": f["source"]} for f in rows]
 
 
+@app.get("/api/value")
+async def value():
+    """What the product delivered to the user (Evidence page headline numbers)."""
+    return await get_store().value_stats()
+
+
 @app.get("/api/knowledge")
 async def knowledge():
     """How much each research knows after every hunt / enrich / chat round (Evidence page growth chart)."""

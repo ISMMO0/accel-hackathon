@@ -234,6 +234,20 @@ class PgStore:
         return await self._all("SELECT k.research_id, r.query, k.event, k.facts, k.sources, k.priced_items, k.created_at "
                                "FROM knowledge_log k JOIN researches r ON r.id = k.research_id ORDER BY k.id")
 
+    async def value_stats(self):
+        """User-facing totals for the Evidence page, one query."""
+        return await self._one(
+            "SELECT (SELECT count(*) FROM researches WHERE status='done') AS projects, "
+            "(SELECT count(*) FROM companies) AS competitors, (SELECT count(*) FROM facts) AS facts, "
+            "(SELECT count(DISTINCT source) FROM facts) AS sources, "
+            "(SELECT count(*) FROM snapshots) AS pages_read, "
+            "(SELECT count(*) FROM facts WHERE kind='price') AS prices, "
+            "(SELECT count(*) FROM facts WHERE created_at > now() - interval '24 hours') AS fresh_facts, "
+            "(SELECT count(*) FROM researches WHERE market ? 'biz_plan') AS plans, "
+            "(SELECT coalesce(sum(cost_usd),0) FROM llm_calls) AS spend, "
+            "(SELECT coalesce(avg((totals->>'secs')::float),0) FROM researches WHERE mode='fresh' AND status='done' "
+            "   AND totals ? 'secs' AND NOT is_recorded) AS avg_secs")
+
     async def library_rows(self):
         """Every research with competitor count, fact count, unseen alerts and thumbnail data: one query."""
         return await self._all(
