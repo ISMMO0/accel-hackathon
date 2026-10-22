@@ -266,3 +266,7 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
 - Nominatim geocoding is rate-limited to 1 request/second (policy); results cached 30 days.
 - Seeded demo researches are fixture data, marked "Recorded" in the UI; they live in Aiven too.
 - The SSE stream ends on `run_done`/`run_error`; the UI reconnects with `?after=<last id>` for continue runs.
+
+## Phase 4: Deploy (Aiven Runtime)
+- Live: https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app (eu-west-1, Startup 0.2 vCPU/512 MB, built from `compose.aiven.yaml` → `backend/Dockerfile`, branch main).
+- Env vars: the import file `backend/.env.aiven` (git-ignored) holds the keys from `.env` (ELEVENLABS mapped to ELEVENLABS_API_KEY, plus a generated MCP_TOKEN). Import it in the Aiven console (app → Environment variables → Edit → Import from file, mark as secret), then redeploy. With no keys the app runs on recorded demo data in memory.
