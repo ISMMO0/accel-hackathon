@@ -59,6 +59,7 @@ async def watcher_loop():
 async def lifespan(app: FastAPI):
     store = get_store()
     await store.init()
+    await store.mark_interrupted()  # hunts cut off by a restart: say so instead of "running" forever
     if settings.seed_demo:
         await seed()
     if settings.watch_interval_min > 0:
@@ -154,6 +155,12 @@ async def research_chat(rid: str, body: ChatIn):
     if not body.message.strip():
         raise HTTPException(400, "Ask something first.")
     return await chat.answer(rid, body.message.strip())
+
+
+@app.get("/api/eval")
+async def eval_results():
+    """Latest evaluation run (scripts/eval.py): Launch Spy vs plain Claude + memory curve."""
+    return await get_store().eval_rows()
 
 
 @app.post("/api/watcher/run")

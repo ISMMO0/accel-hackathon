@@ -225,6 +225,16 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
 .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:.25}}
 
+/* evidence page */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:28px}
+.kpi{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.kpi b{display:block;font-size:30px;letter-spacing:-.02em;font-weight:600}
+.kpi b em{font-style:normal;font-size:16px;color:var(--ink-3);font-weight:500;margin-left:6px}
+.kpi span{font-size:13px;color:var(--ink-2)}
+.ev-sec{margin-bottom:32px}.ev-sec h2{font-size:20px;letter-spacing:-.01em;margin-bottom:12px}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--ink-2);margin:0 0 10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
 /* map page */
 .mapw{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 63px)}
 .mside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -285,6 +295,7 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
     <a href="#/" id="nav-dash">Dashboard</a>
     <a href="#/library" id="nav-lib">Research library<span class="n mono" id="libCount"></span></a>
     <a href="#/map" id="nav-map">Map</a>
+    <a href="#/evidence" id="nav-ev">Evidence</a>
   </nav>
   <div class="status" id="status"><span class="pulse"></span><span id="statusTxt">5 agents on standby</span><span class="tag" id="liveTag">Connecting…</span></div>
 </header>
@@ -344,6 +355,11 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
     </div>
     <div class="lib" id="lib"></div>
   </div>
+</main>
+
+<!-- EVIDENCE -->
+<main class="page" id="p-ev">
+  <div class="wrap" id="ev"></div>
 </main>
 
 <!-- MAP -->

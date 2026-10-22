@@ -18,7 +18,9 @@ from ..schemas import (
     CompanyStrategy,
     ExtractedFact,
     Gap,
+    KnownPlayers,
     MarketFrame,
+    PageChanges,
     PageExtraction,
     PlanPrice,
     ScoutResult,
@@ -109,7 +111,17 @@ class ClaudeLLM:
         raise LLMError(f"{agent}: invalid output ({last_err})")
 
     # ---- agent jobs ----
-    async def scout(self, query: str, results: list[dict], research_id: str, guides=None) -> ScoutResult:
+    async def known_players(self, query: str, research_id: str) -> list[str]:
+        """What the model already knows about the market; the Scout checks it against the live web."""
+        r = await self.structured(
+            agent="scout", model=settings.model_scout, effort="low", research_id=research_id, out=KnownPlayers,
+            system="You know the competitive landscape of most markets. Name the established, currently operating "
+                   "direct competitors. Names only.",
+            user=f"Business or idea: {query}\nList up to {settings.max_competitors} competitors.")
+        return r.names[: settings.max_competitors]
+
+    async def scout(self, query: str, results: list[dict], research_id: str, guides=None,
+                    known: list[str] | None = None) -> ScoutResult:
         lines = "\n".join(f"- {r['title']} | {r['url']} | {r.get('content', '')[:300]}" for r in results)
         guides = "\n\n".join(f"Guide: {g['url']}\n{g['text'][:6000]}" for g in guides or [])
         return await self.structured(
@@ -122,7 +134,13 @@ class ClaudeLLM:
                 "news sites as competitors, but DO use guides and 'best of' lists: extract the businesses they "
                 "name. " + UNTRUSTED
             ),
-            user=f"Business or idea: {query}\n\nSearch results:\n<page>\n{lines}\n</page>\n\n<page>\n{guides}\n</page>",
+            user=(f"Business or idea: {query}\n\nEstablished players you already know (may be incomplete or "
+                  f"outdated): {', '.join(known or []) or 'none'}\n\nSearch results:\n<page>\n{lines}\n</page>"
+                  f"\n\n<page>\n{guides}\n</page>\n\nStart from the established players: keep each one that is a "
+                  "real direct competitor. Use the web results to confirm them, and only add a newer or local "
+                  "player from the web when it is clearly more relevant than an established one (for local "
+                  "businesses like cafés, the web results are the main source). Prefer well-known, relevant "
+                  "competitors over obscure ones."),
         )
 
     async def extract(self, query: str, company: dict, url: str, text: str, research_id: str) -> PageExtraction:
@@ -140,6 +158,19 @@ class ClaudeLLM:
             user=(f"Company: {company['name']} ({company['domain']})\nUser's idea: {query}\nURL: {url}\n\n"
                   f"<page>\n{text[:settings.page_char_limit]}\n</page>"),
         )
+
+    async def changes(self, company: dict, url: str, known: list[str], text: str, research_id: str) -> list[str]:
+        """Watcher: what meaningfully changed on this page compared with what we already know."""
+        r = await self.structured(
+            agent="watcher", model=settings.model_extract, effort="low", research_id=research_id, out=PageChanges,
+            system=("You monitor a competitor's web page. Compare the page with the facts already known and list "
+                    "only meaningful business changes: prices, plans, features, offers, hiring, ratings that moved. "
+                    "Ignore wording, layout, ads, counters, dates, individual reviews and anything already in the "
+                    "known facts. Only report a change you can state as a concrete fact (e.g. 'Gold now costs €20/mo'). "
+                    "If unsure, or nothing meaningful changed, return an empty list. " + UNTRUSTED),
+            user=(f"Company: {company['name']}\nURL: {url}\nKnown facts:\n" + "\n".join(f"- {k}" for k in known[:30])
+                  + f"\n\n<page>\n{text[:settings.page_char_limit]}\n</page>"))
+        return r.changes
 
     async def analyze(self, query: str, companies: list[dict], research_id: str) -> Analysis:
         blocks = []
@@ -183,7 +214,11 @@ class MockLLM:
 
         await asyncio.sleep(mock_wait(s))
 
-    async def scout(self, query, results, research_id, guides=None) -> ScoutResult:
+    async def known_players(self, query, research_id) -> list[str]:
+        await self._wait(0.3)
+        return [c["n"] for c in fixtures.markets()[fixtures.market_for(query)]["C"]]
+
+    async def scout(self, query, results, research_id, guides=None, known=None) -> ScoutResult:
         await self._wait(1.2)
         m = fixtures.markets()[fixtures.market_for(query)]
         return ScoutResult(

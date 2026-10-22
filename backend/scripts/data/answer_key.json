@@ -1,0 +1,15 @@
+{
+  "_note": "Hand-made answer key: well-known competitors per market. A system 'finds' one if it names it (case-insensitive, aliases allowed).",
+  "markets": [
+    {"query": "A dating app for young professionals in Paris",
+     "competitors": [["Hinge"], ["Bumble"], ["Tinder"], ["happn"], ["Meetic"], ["Fruitz"], ["Once"], ["The Inner Circle", "Inner Circle"]]},
+    {"query": "A CRM for small businesses",
+     "competitors": [["HubSpot"], ["Salesforce"], ["Pipedrive"], ["Zoho CRM", "Zoho"], ["Freshsales", "Freshworks"], ["monday sales CRM", "monday.com", "monday"], ["Copper"], ["Close"], ["folk"]]},
+    {"query": "An AI meeting note taker app",
+     "competitors": [["Otter.ai", "Otter"], ["Fireflies.ai", "Fireflies"], ["Fathom"], ["tl;dv", "tldv"], ["Granola"], ["Read.ai", "Read AI"], ["Avoma"], ["Fellow"]]},
+    {"query": "A language learning app",
+     "competitors": [["Duolingo"], ["Babbel"], ["Busuu"], ["Memrise"], ["Rosetta Stone"], ["Preply"], ["italki"], ["Lingoda"]]},
+    {"query": "A project management tool for software teams",
+     "competitors": [["Jira"], ["Linear"], ["Asana"], ["Trello"], ["monday.com", "monday"], ["ClickUp"], ["Notion"], ["Shortcut"], ["GitHub Projects", "GitHub"]]}
+  ]
+}

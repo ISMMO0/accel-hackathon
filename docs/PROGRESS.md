@@ -141,10 +141,41 @@ a connection). Sequential DB calls on the agents' path made hunts time out. LLMs
 Report page load 4–10s over this Wi-Fi (library 0.8s). **Biggest remaining speed win = deploy on Aiven Runtime**
 (app next to the database and the APIs).
 
+### Phase 3: evidence it works ✅ (first version)
+**Built**
+- `backend/scripts/eval.py` + answer key `backend/scripts/data/answer_key.json` (5 markets, 8–9 known competitors each).
+  Compares Launch Spy (full live hunt through the API) with plain Claude (one call, no tools), and runs a memory
+  curve ("Continue research" on the first market). Writes rows to table `eval_runs` (migration `002_eval.sql`)
+  and a summary to `docs/EVAL_RESULTS.md`. Run: `cd backend && PYTHONUNBUFFERED=1 .venv/bin/python -m scripts.eval`
+  (server must be running; ~12 min, ~$0.8). **Don't edit backend Python while it runs** (dev server reloads, kills hunts).
+- **Evidence page** in the UI (`#/evidence`, `GET /api/eval`): KPIs, recall chart per market, memory table, all runs.
+- **Page memory** (`store.page_memory()`, one query): researchers reuse facts of pages whose fingerprint
+  (sha256 of text) is unchanged, with no Claude call. Emits `fact_added` with `reused: true`.
+- **Hybrid Scout**: `llm.known_players()` (what Claude already knows, run in parallel with web search) is given to
+  the Scout, which keeps established players and adds web-found newer/local ones.
+- **Watcher**: pages compared in parallel using page memory; when a fingerprint differs, Haiku `llm.changes()`
+  lists only meaningful changes vs known facts (stops false alerts from dynamic app-store/review pages).
+- Continue mode reports this run's own LLM calls/cost (`base_stats`), not the research lifetime totals.
+- Startup marks hunts left `running` by a restart as `interrupted`. Eval script falls back to polling if SSE drops.
+
+**Results (live, run `20261022-1006xx`, see docs/EVAL_RESULTS.md)**
+| | Launch Spy | Plain Claude |
+|---|---|---|
+| Known competitors found (recall) | 67% (was 50% before hybrid Scout) | 84% |
+| Facts linked to a source page | 100% (840 facts) | 0% |
+| Cost per market | $0.13 | $0.002 |
+| Continue research (re-check a known market) | 0 new Claude calls, $0.00 when nothing changed* | – |
+
+*Measured before semantic change detection: 172s (sequential). After the Watcher fixes: ~47–56s, and when pages
+change it re-runs Analyst+Strategist (~$0.09). The Scout prompt was tightened after this eval run; re-run the eval
+(ideally from the deployed server) to refresh the numbers.
+
+**How to pitch the evidence honestly:** plain Claude is good at naming famous brands from memory; Launch Spy is
+close on that (67% vs 84%) but every claim is sourced and fresh (prices read today), it finds local businesses
+that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market costs ~nothing when nothing changed.
+
 ### Next phases (plan)
-- **Phase 3 — evidence:** `scripts/eval.py` + answer key (6–8 markets with known competitors):
-  recall vs plain Claude, grounding rate, price freshness, memory curve (4 related hunts getting faster/cheaper).
-  Store results in Aiven Postgres; Lightdash dashboard on top.
+- **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +
   "Check now" Watcher button, pre-run demo researches, backup video.
 - **Phase 5 — extras if time:** ElevenLabs voice briefing, n8n alert delivery, Modal-parallel eval.

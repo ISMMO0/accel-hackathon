@@ -22,6 +22,10 @@ class ScoutResult(Strict):
     candidates: list[Candidate]
 
 
+class KnownPlayers(Strict):
+    names: list[str] = Field(description="Established direct competitors, most important first")
+
+
 # ---- Researcher (page -> facts) ----
 FactKind = Literal["price", "feature", "hiring", "review", "location", "funding", "change", "other"]
 
@@ -34,6 +38,10 @@ class ExtractedFact(Strict):
 
 class PageExtraction(Strict):
     facts: list[ExtractedFact]
+
+
+class PageChanges(Strict):
+    changes: list[str] = Field(description="Meaningful changes vs the known facts, one sentence each; empty if none")
 
 
 # ---- Analyst (whole market) ----
