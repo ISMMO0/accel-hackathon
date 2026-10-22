@@ -22,6 +22,7 @@ class Settings:
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     openai_api_key: str = field(default_factory=lambda: _env("OPENAI_API_KEY"))
     keenable_api_key: str = field(default_factory=lambda: _env("KEENABLE_API_KEY"))
+    gradium_api_key: str = field(default_factory=lambda: _env("GRADIUM_API_KEY"))
     tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
     firecrawl_api_key: str = field(default_factory=lambda: _env("FIRECRAWL_API_KEY"))
     jina_api_key: str = field(default_factory=lambda: _env("JINA_API_KEY"))
@@ -76,6 +77,7 @@ class Settings:
             "browser": bool(self.h_api_key and self.h_api_url),
             "embed": bool(self.openai_api_key),
             "geocode": bool(self.anthropic_api_key),  # real geocoding is only worth it with real data
+            "voice": bool(self.gradium_api_key),
             "database": bool(self.database_url),
             "cache": bool(self.valkey_url),
         }
