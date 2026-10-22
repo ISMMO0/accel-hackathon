@@ -207,6 +207,14 @@ that a model can't know (e.g. the cafés of Paris 11e), and re-checking a market
   Continue research on it).
 - Report pages open with a large orbiting "planet" of the competitors' logos (same `thumb()` + `animateThumbs()`).
 
+### Phase 3f: voice input with Gradium ✅
+- Mic button on the dashboard search and the report chat. With `GRADIUM_API_KEY` set (`/api/health` → `live.voice`),
+  the browser records a 16-bit mono WAV (AudioContext) and posts it to `POST /api/transcribe?lang=xx`; the server
+  calls Gradium STT (`https://api.gradium.ai/api/post/speech/asr`, header `x-api-key`, query `json_config`
+  `{"language": ...}`, NDJSON response, `text` segments joined). The key never reaches the browser.
+  Click to start, click again to stop; the text is sent automatically. Without the key: Chrome's built-in speech
+  recognition. Tested: French and English clips transcribed in 3–4s.
+
 ### Next phases (plan)
 - **Phase 3b (optional):** Lightdash dashboard on `eval_runs`; re-run eval after deploy.
 - **Phase 4 — deploy + demo safety:** Aiven App Runtime (Dockerfile ready), fake competitor site +

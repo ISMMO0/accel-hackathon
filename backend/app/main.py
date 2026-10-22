@@ -165,6 +165,34 @@ async def library():
     return await views.library()
 
 
+@app.post("/api/transcribe")
+async def transcribe(request: Request, lang: str = "any"):
+    """Voice input: the browser posts a WAV recording, Gradium speech-to-text returns the text.
+
+    The API key stays on the server. Response from Gradium is NDJSON; we join the "text" segments."""
+    if not settings.gradium_api_key:
+        raise HTTPException(503, "Voice transcription is not configured")
+    audio = await request.body()
+    if not audio or len(audio) > 15_000_000:
+        raise HTTPException(400, "Send a WAV recording under 15 MB")
+    lang = lang if lang in ("en", "fr", "de", "es", "pt") else "any"
+    r = await web.http().post("https://api.gradium.ai/api/post/speech/asr",
+                              params={"json_config": json.dumps({"language": lang})},
+                              headers={"x-api-key": settings.gradium_api_key, "Content-Type": "audio/wav"},
+                              content=audio, timeout=60)
+    if r.status_code != 200:
+        raise HTTPException(502, f"Transcription failed ({r.status_code})")
+    parts = []
+    for line in r.text.splitlines():
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if m.get("type") == "text" and m.get("text"):
+            parts.append(m["text"].strip())
+    return {"text": " ".join(parts).strip()}
+
+
 @app.post("/api/research/{rid}/chat")
 async def research_chat(rid: str, body: ChatIn):
     if not await get_store().get_research(rid):

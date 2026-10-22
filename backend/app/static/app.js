@@ -26,9 +26,9 @@ async function getReport(id,seen=false){const r=await api(`/api/research/${id}${
 const mkt=r=>({...r.market,C:r.C});
 
 /* ---------------- status pill ---------------- */
-let LIVE=false;
+let LIVE=false,VOICE=false;
 api("/api/health").then(h=>{
-  LIVE=h.live.llm;
+  LIVE=h.live.llm;VOICE=!!h.live.voice;
   $("#liveTag").textContent=LIVE?"Live agents":"Recorded data";
   $("#liveTag").title=Object.entries(h.live).map(([k,v])=>`${k}: ${v?"live":"mock"}`).join(" · ");
 }).catch(()=>{});
@@ -447,14 +447,51 @@ async function renderGrowth(){
   $("#growth").innerHTML=`<h2>Knowledge growth: every round adds data</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
 }
 
-/* ---------------- voice input (browser speech-to-text, no key needed) ---------------- */
+/* ---------------- voice input: Gradium speech-to-text (server key), Chrome built-in as fallback ---------------- */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+async function startWav(){
+  // record raw mic samples and encode a 16-bit mono WAV (a format Gradium accepts directly)
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const src=ctx.createMediaStreamSource(stream),proc=ctx.createScriptProcessor(4096,1,1),chunks=[];
+  proc.onaudioprocess=e=>chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc);proc.connect(ctx.destination);
+  return async()=>{
+    proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop());
+    const rate=ctx.sampleRate;await ctx.close();
+    const n=chunks.reduce((a,c)=>a+c.length,0),buf=new ArrayBuffer(44+n*2),v=new DataView(buf);
+    const w=(o,s)=>[...s].forEach((ch,i)=>v.setUint8(o+i,ch.charCodeAt(0)));
+    w(0,"RIFF");v.setUint32(4,36+n*2,true);w(8,"WAVE");w(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+    v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,"data");v.setUint32(40,n*2,true);
+    let o=44;for(const c of chunks)for(let i=0;i<c.length;i++,o+=2){const s=Math.max(-1,Math.min(1,c[i]));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true)}
+    return new Blob([buf],{type:"audio/wav"});
+  };
+}
 function micButton(input,onDone){
-  if(!SR)return null;
+  if(!SR&&!navigator.mediaDevices)return null;
   const b=document.createElement("button");b.type="button";b.className="mic";b.setAttribute("aria-label","Speak instead of typing");
   b.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
-  let rec=null;
-  b.onclick=()=>{
+  let rec=null,stopWav=null,busy=false;
+  const lang=(navigator.language||"en").slice(0,2);
+  b.onclick=async()=>{
+    if(VOICE){  // Gradium: click to start, click again to stop and transcribe
+      if(busy)return;
+      if(stopWav){
+        const stop=stopWav;stopWav=null;busy=true;b.classList.remove("on");input.placeholder="Transcribing with Gradium…";
+        try{
+          const wav=await stop();
+          const r=await fetch(`/api/transcribe?lang=${lang}`,{method:"POST",headers:{"Content-Type":"audio/wav"},body:wav});
+          const t=r.ok?(await r.json()).text:"";
+          input.placeholder=input.dataset.ph||"";
+          if(t){input.value=t;onDone(t)}else input.placeholder="Didn't catch that, try again";
+        }catch{input.placeholder="Voice failed, try again"}
+        busy=false;return;
+      }
+      try{stopWav=await startWav();b.classList.add("on");input.placeholder="Listening… click the mic again when you're done"}
+      catch{input.placeholder="Microphone not allowed"}
+      return;
+    }
+    if(!SR)return;
     if(rec){rec.stop();return}
     rec=new SR();rec.lang=navigator.language||"fr-FR";rec.interimResults=true;rec.continuous=false;
     const before=input.value;b.classList.add("on");input.placeholder="Listening…";
