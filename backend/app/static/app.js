@@ -242,7 +242,7 @@ async function renderReport(id,keepTab){
   let r;try{r=await getReport(id,true)}catch{location.hash="#/library";return}
   const d=mkt(r),t=r.totals||{};
   const tab=keepTab||"pos";
-  if(!d.gap){$("#rep").innerHTML=`<a class="back" href="#/library">← Research library</a><h1>${esc(r.q)}</h1><p class="empty">This research is ${esc(r.status)}. The report appears when the agents finish.</p>`;return}
+  if(!d.gap){$("#rep").innerHTML=`<a class="back" href="#/library">← Research library</a><h1>${esc(r.label||r.q)}</h1><p class="empty">This research is ${esc(r.status)}. The report appears when the agents finish.</p>`;return}
   $("#rep").innerHTML=`
    <a class="back" href="#/library"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>Research library</a>
    <div class="thumb r-orbit">${thumb(d.C.map(c=>({n:c.n,sim:c.sim,ang:c.ang,d:c.domain})))}</div>
