@@ -9,6 +9,7 @@ const AG={
   upgrader:{n:"Upgrader",c:"#9be38a",job:"Every 10 min: enriches your stalest project"},
 };
 const $=s=>document.querySelector(s);
+if(/[?&]shot=1/.test(location.search))gsap.globalTimeline.timeScale(50);  // screenshot mode: animations finish instantly
 const NS="http://www.w3.org/2000/svg";
 const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
