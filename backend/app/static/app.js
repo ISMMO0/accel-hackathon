@@ -1,4 +1,4 @@
-/* Launch Spy frontend: renders everything from the API and the live event stream. */
+/* Before You Start frontend: renders everything from the API and the live event stream. */
 const AG={
   scout:{n:"Scout",c:"#7cc4ff",job:"Finds competitors"},
   research:{n:"Researcher",c:"#c79bff",job:"Reads sites with H agents"},
@@ -225,7 +225,7 @@ async function renderReport(id,keepTab){
    <div class="r-head"><div><h1>${esc(r.label||r.q)}</h1>${r.label?`<p class="qline">“${esc(r.q)}”</p>`:""}<p>${esc(r.when)} · ${r.recorded?"recorded data":"live run"} · watched by the Watcher${t.llm&&t.llm.calls?` · ${t.llm.calls} LLM calls, $${t.llm.cost_usd}`:""}</p></div>
      <div class="r-acts"><button class="ghost" id="enrichBtn" ${r.status==="running"?"disabled":""}>${r.status==="running"?"Agents working…":"Enrich: find more data"}</button></div>
      <div class="stats"><div><b class="mono">${r.C.length}</b><span>competitors</span></div><div><b class="mono">${r.C.reduce((a,c)=>a+c.facts,0)}</b><span>facts</span></div><div><b class="mono">${t.secs??"–"}s</b><span>hunt time</span></div></div></div>
-   ${planCard(d.biz_plan)}
+   ${planCard(d.biz_plan,r.planning)}
    <div class="verdict"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg></div>
      <div><h3>${esc(d.verdict[0])}</h3><p>${esc(d.verdict[1])}</p></div></div>
    <div class="enrich-feed" id="enrichFeed"></div>
@@ -251,6 +251,7 @@ async function renderReport(id,keepTab){
        <input id="fText" placeholder="Filter facts, e.g. tonkotsu, vegan, Pro plan">
        <span class="count mono" id="fCount"></span>
      </div>
+     <div id="srcPanel" class="src-panel"></div>
      <div class="tbl tall"><table><thead><tr><th>Competitor</th><th>Type</th><th>Item</th><th>Value</th><th>Fact</th><th>Source</th></tr></thead><tbody id="fRows"><tr><td colspan="6" class="empty">Loading facts from Postgres…</td></tr></tbody></table></div>
      <p class="note">Every fact the agents stored for this research, straight from Aiven Postgres. Click a column header to sort.</p>
    </div>
@@ -272,6 +273,8 @@ async function renderReport(id,keepTab){
   $("#rep").querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setTab(b.dataset.v));
   $("#enrichBtn").onclick=()=>enrich(id);
   if($("#planBtn"))$("#planBtn").onclick=()=>buildPlan(id);
+  if(!d.biz_plan&&!r.planning&&r.status==="done"&&LIVE){buildPlan(id);return}  // older project: plan it on first open
+  watchPlan(id,r);
   if($("#planOpen"))$("#planOpen").onclick=()=>openPlan(id);
   loadFacts(id);
   $("#rep").querySelectorAll("[data-id]").forEach(n=>{n.onclick=()=>openDossier(id,n.dataset.id);n.onkeydown=e=>e.key==="Enter"&&openDossier(id,n.dataset.id)});
@@ -292,16 +295,21 @@ function drawPos(d){
   gsap.from(s.querySelectorAll(".pt"),{opacity:0,duration:.5,stagger:.05,ease:"expo.out",delay:.2});
 }
 /* ---------------- ideal business plan (Planner agent) ---------------- */
-function planCard(p){
-  if(!p)return `<div class="plan-card empty-plan"><div><h3>Your ideal business plan</h3><p>The Planner agent turns everything collected here into a launch plan: what to charge, where to open, how to launch, and how to beat each competitor.</p></div><button class="btn" id="planBtn">Build my business plan</button></div>`;
-  return `<div class="plan-card"><div class="pc-main"><span class="pc-tag">Your ideal business plan</span><h3>${esc(p.headline)}</h3><p>${esc(p.concept)}</p>
+function agoTxt(iso){if(!iso)return"";const s=(Date.now()-Date.parse(iso))/1000;return s<90?"just now":s<3600?`${Math.round(s/60)} min ago`:s<86400?`${Math.round(s/3600)} h ago`:`${Math.round(s/86400)} days ago`}
+function planCard(p,planning){
+  if(!p)return `<div class="plan-card empty-plan"><div><h3>Your ideal business plan</h3><p>${planning?"The Planner agent is writing your plan from everything collected here: what to charge, where to open, how to launch, how to beat each competitor. About a minute…":"The Planner agent turns everything collected here into a launch plan."}</p></div>${planning?`<span class="pc-wait">Writing…</span>`:`<button class="btn" id="planBtn">Build my business plan</button>`}</div>`;
+  return `<div class="plan-card"><div class="pc-main"><span class="pc-tag">Your ideal business plan</span> <span class="pc-upd">${planning?"Updating with the new data…":`${p.updated_at?`Updated ${agoTxt(p.updated_at)}`:"Ready"}${p.facts_used?` · from ${p.facts_used} facts`:""} · auto-updates with new data`}</span><h3>${esc(p.headline)}</h3><p>${esc(p.concept)}</p>
     <div class="pc-chips">${p.price_list.slice(0,3).map(x=>`<span><b>${esc(x.price)}</b> ${esc(x.item)}</span>`).join("")}<span class="loc">📍 ${esc(p.location.area)}</span></div></div>
-    <div class="pc-acts"><button class="btn" id="planOpen">Open the full plan</button><button class="ghost" id="planBtn">Rebuild</button></div></div>`;
+    <div class="pc-acts"><button class="btn" id="planOpen">Open the full plan</button><button class="ghost" id="planBtn" ${planning?"disabled":""}>${planning?"Updating…":"Update with new data"}</button></div></div>`;
 }
 async function buildPlan(id){
-  const b=$("#planBtn");b.disabled=true;b.textContent="Planner agent is writing your plan… (about a minute)";
-  try{await api(`/api/research/${id}/plan`,{method:"POST"});await renderReport(id,"pos");openPlan(id)}
-  catch(e){b.disabled=false;b.textContent="Couldn't build it: "+e.message}
+  try{await api(`/api/research/${id}/plan`,{method:"POST"})}catch{}
+  await renderReport(id,"pos");
+}
+let planPoll=null;
+function watchPlan(id,r){  // while the Planner works, refresh the card when the new plan lands
+  clearTimeout(planPoll);
+  if(r.planning)planPoll=setTimeout(async()=>{if(repId!==id||!location.hash.includes(id))return;const nr=await getReport(id).catch(()=>null);if(nr&&!nr.planning)renderReport(id,"pos");else if(nr)watchPlan(id,nr)},5000);
 }
 function openPlan(id){
   const r=reports[id],p=r&&r.market.biz_plan;if(!p)return;
@@ -328,7 +336,17 @@ async function loadFacts(id){
   ["fComp","fKind","fText"].forEach(x=>$("#"+x)&&($("#"+x).oninput=drawFacts));
   if($("#fPrices"))$("#fPrices").onclick=e=>{const b=e.currentTarget;b.setAttribute("aria-pressed",b.getAttribute("aria-pressed")!=="true");drawFacts()};
   document.querySelectorAll("#v-data th").forEach((th,i)=>th.onclick=()=>{const k=["company","kind","item","value","text","source"][i];fSort={k,dir:fSort.k===k?-fSort.dir:1};drawFacts()});
+  drawSources();
   drawFacts();
+}
+const PLATFORMS=[[/google\.|maps\.app|goo\.gl/,"Google Maps & reviews"],[/reddit\./,"Reddit"],[/tripadvisor\./,"TripAdvisor"],[/thefork|lafourchette/,"TheFork"],[/yelp\./,"Yelp"],[/trustpilot\./,"Trustpilot"],[/apps\.apple|play\.google/,"App stores"],[/g2\.com|capterra/,"G2 / Capterra"],[/instagram|facebook|tiktok|x\.com|twitter|linkedin/,"Social media"],[/doordash|ubereats|deliveroo|justeat/,"Delivery apps"],[/youtube\./,"YouTube"],[/wikipedia\./,"Wikipedia"],[/timeout|lefooding|sortiraparis|lebonbon|parisbymouth|eater|michelin|blog|news|magazine/,"Press & blogs"]];
+function platformOf(url,own){const h=String(url).replace(/^https?:\/\//,"").split("/")[0].replace(/^www\./,"");if(own.has(h))return"Competitor websites";for(const[re,n]of PLATFORMS)if(re.test(h)||re.test(url))return n;return"Other websites"}
+function drawSources(){
+  if(!$("#srcPanel"))return;
+  const own=new Set((reports[repId]?.C||[]).map(c=>c.domain));
+  const by={};FACTS.forEach(f=>{const p=platformOf(f.source,own);(by[p]=by[p]||{n:0,src:new Set()}).n++;by[p].src.add(f.source)});
+  const rows=Object.entries(by).sort((a,b)=>b[1].n-a[1].n),max=Math.max(1,...rows.map(r=>r[1].n));
+  $("#srcPanel").innerHTML=`<h4>Where this data comes from</h4>${rows.map(([p,v])=>`<div class="srow"><span>${esc(p)}</span><i style="width:${Math.max(3,v.n/max*100)}%"></i><b class="mono">${v.n} facts · ${v.src.size} pages</b></div>`).join("")||`<p class="note">No facts yet.</p>`}`;
 }
 function drawFacts(){
   if(!$("#fRows"))return;
@@ -456,7 +474,7 @@ async function renderEvidence(){
   let v={};try{v=await api("/api/value")}catch{}
   const hours=Math.round((v.pages_read||0)*10/60),perProj=v.projects?(v.spend/v.projects):0,fresh=v.facts?Math.round(v.fresh_facts/v.facts*100):0;
   el_.innerHTML=`
-   <div class="lib-head"><div><h1>What Launch Spy delivered</h1><p>Across your ${v.projects||0} projects, read live from Aiven Postgres.</p></div></div>
+   <div class="lib-head"><div><h1>What Before You Start delivered</h1><p>Across your ${v.projects||0} projects, read live from Aiven Postgres.</p></div></div>
    <div class="kpis">
      <div class="kpi"><b>~${hours} h<em>saved</em></b><span>${v.pages_read||0} pages read for you (≈10 min of manual reading each)</span></div>
      <div class="kpi"><b>${(v.prices||0).toLocaleString()}<em>prices</em></b><span>menu items, plans and offers collected across ${v.competitors||0} competitors</span></div>
@@ -465,18 +483,18 @@ async function renderEvidence(){
      <div class="kpi"><b>$${perProj.toFixed(2)}<em>per project</em></b><span>AI cost, vs hours of an analyst's time · ${Math.round(v.avg_secs||0)}s per hunt</span></div>
    </div>
    <div class="ev-sec" id="growth"></div>
-   <div class="ev-sec"><h2>Benchmark: what memory knows vs what Launch Spy adds</h2>
-     <p class="note" style="margin:0 0 12px;font-size:14px">Plain Claude names famous brands from memory (${pct(avg(pc,"recall"))} of our answer key). Launch Spy finds most of them too (${pct(avg(ls,"recall"))}) and adds what memory can't: <b>a source for 100% of its ${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts</b> (plain Claude: none), today's prices, and local businesses.${fr&&mem?` Re-checking a known market reused ${mem.reused_facts} facts for $${(+mem.cost_usd).toFixed(2)}.`:""}</p>
+   <div class="ev-sec"><h2>Benchmark: what memory knows vs what Before You Start adds</h2>
+     <p class="note" style="margin:0 0 12px;font-size:14px">Plain Claude names famous brands from memory (${pct(avg(pc,"recall"))} of our answer key). Before You Start finds most of them too (${pct(avg(ls,"recall"))}) and adds what memory can't: <b>a source for 100% of its ${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts</b> (plain Claude: none), today's prices, and local businesses.${fr&&mem?` Re-checking a known market reused ${mem.reused_facts} facts for $${(+mem.cost_usd).toFixed(2)}.`:""}</p>
    </div>
    <div class="ev-sec"><h2>Competitors found, per market</h2>
-     <div class="legend"><span><i style="background:#ffb547"></i>Launch Spy (live web)</span><span><i style="background:#4a5361"></i>Plain Claude (no tools)</span></div>
+     <div class="legend"><span><i style="background:#ffb547"></i>Before You Start (live web)</span><span><i style="background:#4a5361"></i>Plain Claude (no tools)</span></div>
      <div class="chart">${svg}</div></div>
    ${fr&&mem?`<div class="ev-sec"><h2>Memory: re-checking a market you already researched</h2><div class="tbl"><table><thead><tr><th>Run</th><th>Time</th><th>LLM calls</th><th>Cost</th><th>Facts reused</th></tr></thead><tbody>
      <tr><td>1st hunt</td><td class="num">${fr.secs}s</td><td class="num">${fr.llm_calls}</td><td class="num">$${(+fr.cost_usd).toFixed(3)}</td><td class="num">${fr.reused_facts}</td></tr>
      <tr><td>Continue research</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
    </tbody></table></div></div>`:""}
    <div class="ev-sec"><h2>Every run</h2><div class="tbl"><table><thead><tr><th>Market</th><th>System</th><th>Found</th><th>Sourced facts</th><th>Time</th><th>Cost</th></tr></thead><tbody>
-     ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Launch Spy":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
+     ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Before You Start":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
    </tbody></table></div><p class="note">Answer key: backend/scripts/data/answer_key.json · raw rows in the eval_runs table (Aiven Postgres).</p></div>`;
   renderGrowth();
 }
@@ -486,7 +504,7 @@ async function renderGrowth(){
   const series=Object.values(by).filter(s=>s.pts.length>1);
   if(!series.length){$("#growth").innerHTML=`<h2>Your projects keep getting smarter</h2><p class="note">Run "Enrich" or ask questions on a research: every round that adds data is logged here.</p>`;return}
   const max=Math.max(...series.flatMap(s=>s.pts.map(p=>p.facts)));
-  $("#growth").innerHTML=`<h2>Your projects keep getting smarter</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map(p=>`<span title="${esc(p.event)}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts}</span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
+  $("#growth").innerHTML=`<h2>Your projects keep getting smarter</h2><div class="tbl"><table><thead><tr><th>Research</th><th>Rounds (facts after each)</th><th>Sources</th><th>Priced items</th></tr></thead><tbody>${series.map(s=>{const a=s.pts[0],z=s.pts[s.pts.length-1];return`<tr><td>${esc(s.q)}</td><td>${s.pts.map((p,i)=>`<span title="${esc(p.event)}${i?` · +${p.facts-s.pts[i-1].facts} facts`:""}" style="display:inline-block;vertical-align:bottom;width:22px;margin-right:4px;height:${Math.max(4,Math.round(p.facts/max*48))}px;background:${p.event==="hunt"?"#4a5361":"#ffb547"};border-radius:3px"></span>`).join("")} <span class="mono" style="color:var(--ink-2)">${a.facts} → ${z.facts} <span style="color:var(--analyst)">(+${z.facts-a.facts})</span></span></td><td class="num">${a.sources} → ${z.sources}</td><td class="num">${a.priced_items} → ${z.priced_items}</td></tr>`}).join("")}</tbody></table></div><p class="note">Grey = first hunt, amber = enrich rounds and chat questions that added facts. Logged in the knowledge_log table (Aiven Postgres).</p>`;
 }
 
 /* ---------------- voice input: Gradium speech-to-text (server key), Chrome built-in as fallback ---------------- */
@@ -550,15 +568,15 @@ function micButton(input,onDone){
 function renderConnectors(){
   const url=location.origin+"/mcp",local=/localhost|127\.0\.0\.1/.test(location.host);
   const fav=d=>`https://www.google.com/s2/favicons?sz=64&domain=${d}`;
-  const prompt=`You have access to my Launch Spy MCP server (${url}). It holds my competitive-research projects: competitors, sourced facts (prices, menus, reviews), market gaps and business plans, built by AI agents from live web data.
+  const prompt=`You have access to my Before You Start MCP server (${url}). It holds my competitive-research projects: competitors, sourced facts (prices, menus, reviews), market gaps and business plans, built by AI agents from live web data.
 1. Call list_projects to see my projects.
 2. Use get_project and search_facts to answer from the stored data, and cite the source URLs.
 3. If something is missing, use ask_project (it searches the web and saves what it learns) or enrich_project.
 4. For a new idea, use start_research, then get_project when it's done.`;
   const cards=[
-    {n:"Claude Code",d:"claude.ai",sub:"Terminal agent",code:`claude mcp add --transport http launch-spy ${url}`},
-    {n:"Codex",d:"openai.com",sub:"~/.codex/config.toml",code:`[mcp_servers.launch-spy]\nurl = "${url}"`},
-    {n:"Cursor",d:"cursor.com",sub:".cursor/mcp.json",code:JSON.stringify({mcpServers:{"launch-spy":{url}}},null,2)},
+    {n:"Claude Code",d:"claude.ai",sub:"Terminal agent",code:`claude mcp add --transport http before-you-start ${url}`},
+    {n:"Codex",d:"openai.com",sub:"~/.codex/config.toml",code:`[mcp_servers.before-you-start]\nurl = "${url}"`},
+    {n:"Cursor",d:"cursor.com",sub:".cursor/mcp.json",code:JSON.stringify({mcpServers:{"before-you-start":{url}}},null,2)},
     {n:"Claude & ChatGPT apps",d:"chatgpt.com",sub:"Custom connector (needs a public URL)",code:`Settings → Connectors → Add custom connector\nURL: ${url}`},
   ];
   $("#con").innerHTML=`

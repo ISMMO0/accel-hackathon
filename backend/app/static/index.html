@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Launch Spy</title>
+<title>Before You Start</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -225,6 +225,15 @@ blockquote{font-size:14px;color:var(--ink-2);border-left:1px solid var(--line-2)
 .typing{display:inline-flex;gap:4px}.typing i{width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:blink 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:.25}}
 
+/* plan status + sources */
+.pc-upd{font-size:12px;color:var(--ink-3);margin-left:6px}
+.pc-wait{font-size:14px;color:var(--amber);animation:pulse 1.4s infinite}
+.src-panel{background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.src-panel h4{font-size:13px;color:var(--ink-2);margin-bottom:8px}
+.srow{display:grid;grid-template-columns:190px 1fr 150px;gap:10px;align-items:center;font-size:13px;padding:3px 0}
+.srow i{display:block;height:8px;border-radius:4px;background:var(--amber)}
+.srow b{font-weight:500;color:var(--ink-2);text-align:right;font-size:12px}
+
 /* connectors */
 .cons{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
 .con{background:var(--bg-2);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px}
@@ -351,7 +360,7 @@ td.src a{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underl
 <header class="top">
   <a class="brand" href="#/">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
-    <span>Launch Spy</span>
+    <span>Before You Start</span>
   </a>
   <nav>
     <a href="#/" id="nav-dash">Dashboard</a>

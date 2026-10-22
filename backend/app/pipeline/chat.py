@@ -44,11 +44,12 @@ async def answer(rid: str, message: str) -> dict:
     await store.add_chat(rid, "user", {"u": message})
     out = await (_claude(rid, message) if web.live() else _recorded(rid, message))
     await store.add_chat(rid, "assistant", out)
-    if out.get("refresh"):  # the question made the project know more: record it on the growth curve
+    if out.get("refresh"):  # the question made the project know more: record it, refresh the plan
         try:
             await store.log_knowledge(rid, "chat")
         except Exception:
             pass
+        hunt.refresh_plan(rid)
     return out
 
 

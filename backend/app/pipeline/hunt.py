@@ -390,6 +390,7 @@ async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: li
     except Exception:
         log.warning("knowledge log failed for %s", rid)
     await emit(rid, "strat", "run_done", "", "", mode=mode, **totals)
+    refresh_plan(rid)  # new data → the Planner rewrites the business plan in the background
 
 
 # ---------------------------------------------------------------- continue + watcher
@@ -552,6 +553,26 @@ async def upgrade_next() -> str | None:
     return oldest["id"]
 
 
+_planning: set[str] = set()
+
+
+def refresh_plan(rid: str) -> bool:
+    """Planner agent, in the background: (re)write the business plan whenever the project's data changes."""
+    if rid in _planning or not web.live():
+        return False
+    _planning.add(rid)
+
+    async def run():
+        try:
+            await make_plan(rid)
+        except Exception:
+            log.exception("plan refresh failed for %s", rid)
+        finally:
+            _planning.discard(rid)
+    spawn(run())
+    return True
+
+
 async def make_plan(rid: str) -> dict:
     """Planner agent: build (or rebuild) the ideal business plan from everything stored for this research."""
     from ..views import report
@@ -564,6 +585,8 @@ async def make_plan(rid: str) -> dict:
         raise RuntimeError("The Planner needs the live Claude key")
     p = await llm().plan(rep_["q"], rep_["market"], comps, rid)
     doc = p.model_dump()
+    doc["updated_at"] = now().isoformat()
+    doc["facts_used"] = sum(len(v["latest"]) for v in facts_by.values())
     if p.location.is_physical:  # green zone on the map
         ll = await web.geocode(p.location.map_query) if p.location.map_query else None
         if not ll:
