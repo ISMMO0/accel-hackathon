@@ -350,14 +350,14 @@ async function renderEvidence(){
      <div class="kpi"><b>${pct(avg(ls,"recall"))}<em>vs ${pct(avg(pc,"recall"))}</em></b><span>known competitors found · Launch Spy vs plain Claude</span></div>
      <div class="kpi"><b>100%<em>vs 0%</em></b><span>facts linked to a source page (${ls.reduce((x,r)=>x+r.sourced_facts,0)} facts)</span></div>
      <div class="kpi"><b>$${avg(ls,"cost_usd").toFixed(2)}<em>per market</em></b><span>full hunt: search, read, analyse, strategy</span></div>
-     ${fr&&mem?`<div class="kpi"><b>${Math.round((1-mem.cost_usd/Math.max(fr.cost_usd,1e-6))*100)}%<em>cheaper</em></b><span>2nd hunt of the same market, ${mem.reused_facts} facts reused from memory</span></div>`:""}
+     ${fr&&mem?`<div class="kpi"><b>${Math.round((1-mem.cost_usd/Math.max(fr.cost_usd,1e-6))*100)}%<em>cheaper</em></b><span>re-checking a known market (Continue research), ${mem.reused_facts} facts reused from memory</span></div>`:""}
    </div>
    <div class="ev-sec"><h2>Competitors found, per market</h2>
      <div class="legend"><span><i style="background:#ffb547"></i>Launch Spy (live web)</span><span><i style="background:#4a5361"></i>Plain Claude (no tools)</span></div>
      <div class="chart">${svg}</div></div>
-   ${fr&&mem?`<div class="ev-sec"><h2>Memory: the second hunt is faster and cheaper</h2><div class="tbl"><table><thead><tr><th>Run</th><th>Time</th><th>LLM calls</th><th>Cost</th><th>Facts reused</th></tr></thead><tbody>
+   ${fr&&mem?`<div class="ev-sec"><h2>Memory: re-checking a market you already researched</h2><div class="tbl"><table><thead><tr><th>Run</th><th>Time</th><th>LLM calls</th><th>Cost</th><th>Facts reused</th></tr></thead><tbody>
      <tr><td>1st hunt</td><td class="num">${fr.secs}s</td><td class="num">${fr.llm_calls}</td><td class="num">$${(+fr.cost_usd).toFixed(3)}</td><td class="num">${fr.reused_facts}</td></tr>
-     <tr><td>2nd hunt</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
+     <tr><td>Continue research</td><td class="num">${mem.secs}s</td><td class="num">${mem.llm_calls}</td><td class="num">$${(+mem.cost_usd).toFixed(3)}</td><td class="num">${mem.reused_facts}</td></tr>
    </tbody></table></div></div>`:""}
    <div class="ev-sec"><h2>Every run</h2><div class="tbl"><table><thead><tr><th>Market</th><th>System</th><th>Found</th><th>Sourced facts</th><th>Time</th><th>Cost</th></tr></thead><tbody>
      ${rows.filter(r=>r.system==="launch_spy"||r.system==="plain_claude").map(r=>`<tr><td>${esc(r.market)}</td><td>${r.system==="launch_spy"?"Launch Spy":"Plain Claude"}</td><td class="num">${r.found}/${r.expected}</td><td class="num">${r.sourced_facts}</td><td class="num">${r.secs}s</td><td class="num">$${(+r.cost_usd).toFixed(3)}</td></tr>`).join("")}
