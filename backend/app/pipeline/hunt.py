@@ -234,6 +234,17 @@ async def research_company(rid: str, query: str, comp: dict, i: int = 0, memory:
             memory = await store.page_memory([comp["id"]])
         except Exception:
             memory = {}
+    # UI: every Researcher of the step announces itself at once, so the parallel work is visible
+    await emit(rid, "research", "researcher_started", "", "", company_id=comp["id"])
+
+    async def fetch(url: str):
+        t = time.perf_counter()
+        page = await _fetch_page(url)
+        if page:
+            await emit(rid, "research", "page_fetched", f"{comp['name']}: read {_short(url)}",
+                       f"{page[2]} · {time.perf_counter() - t:.1f}s", company_id=comp["id"])
+        return page
+
     await _mock_pause(0.55 * i)  # mock: stagger so the demo animation reads well
     try:
         async with asyncio.timeout(settings.researcher_timeout_s):
@@ -247,14 +258,17 @@ async def research_company(rid: str, query: str, comp: dict, i: int = 0, memory:
                     except Exception:
                         return []
                     urls = [r["url"] for r in rev if r["url"] not in site][: settings.pages_per_company - len(site)]
-                    return await asyncio.gather(*(_fetch_page(u) for u in urls))
+                    return await asyncio.gather(*(fetch(u) for u in urls))
 
                 # own site and review search at the same time
-                site_pages, review_pages = await asyncio.gather(
-                    asyncio.gather(*(_fetch_page(u) for u in site)), reviews())
+                site_pages, review_pages = await asyncio.gather(asyncio.gather(*(fetch(u) for u in site)), reviews())
                 pages = [p for p in [*site_pages, *review_pages] if p]
             else:
                 pages = [(u, t, "fixture") for u, t in web.fixture_pages(comp)]
+                for u, _, _ in pages:
+                    await _mock_pause(0.25)
+                    await emit(rid, "research", "page_fetched", f"{comp['name']}: read {_short(u)}", "recorded",
+                               company_id=comp["id"])
 
             async def read(url, text, fetcher) -> int:
                 seen = (memory or {}).get((comp["id"], url))
@@ -283,7 +297,14 @@ async def research_company(rid: str, query: str, comp: dict, i: int = 0, memory:
     except Exception as e:
         await emit(rid, "research", "agent_status", f"{comp['name']}: research incomplete ({type(e).__name__})",
                    "partial facts kept", status="Some pages failed")
+    await emit(rid, "research", "researcher_done", "", "", company_id=comp["id"], facts=len(comp["facts"]))
     return comp["facts"]
+
+
+def _short(url: str) -> str:
+    """climb-up.fr/tarifs instead of the full URL, for the live feed."""
+    u = re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+    return u if len(u) <= 48 else u[:45] + "…"
 
 
 async def geocode_company(rid: str, c: dict) -> list[float] | None:
