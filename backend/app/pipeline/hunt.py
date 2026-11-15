@@ -346,6 +346,9 @@ async def analyze_market(rid: str, query: str, companies: list[dict], facts_by: 
                           for f in facts_by.get(c["id"], [])]}
                for c in companies]
     analysis = await llm().analyze(query, payload, rid)
+    for a in analysis.companies:  # models sometimes copy a /10 score from the page: bring it back to /5
+        if a.rating > 5:
+            a.rating = round(min(a.rating / 2, 5.0), 1)
     by_domain = {c["domain"]: c for c in companies}
 
     async def place(a):

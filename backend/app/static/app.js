@@ -259,7 +259,7 @@ async function loadLib(){
 }
 
 /* ---------------- report ---------------- */
-const stars=n=>"★".repeat(Math.round(n||0))+"☆".repeat(5-Math.round(n||0));
+const stars=n=>{const k=Math.max(0,Math.min(5,Math.round(n||0)));return "★".repeat(k)+"☆".repeat(5-k)};  // data may be off-scale
 let repId=null;
 async function renderReport(id,keepTab){
   repId=id;
