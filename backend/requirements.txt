@@ -13,3 +13,6 @@ langchain-anthropic>=1.7
 langgraph-checkpoint-postgres>=3.2
 psycopg[binary]>=3.3
 psycopg-pool>=3.3
+# OpenAI: agents (LLM_PROVIDER=openai), chat model through LangChain, embeddings
+openai>=1.0
+langchain-openai>=1.0

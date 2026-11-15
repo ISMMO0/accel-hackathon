@@ -101,6 +101,8 @@ async def _tavily(query: str, n: int) -> list[dict]:
 
 async def _claude_search(query: str, n: int = 8) -> list[dict]:
     """No Tavily key: let Claude's server-side web search tool run the query and keep its result list."""
+    if settings.llm_provider != "anthropic":
+        return []
     from anthropic import AsyncAnthropic
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)

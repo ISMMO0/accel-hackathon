@@ -6,7 +6,7 @@
                |
                no -> END (final answer)
 
-- LangChain: `ChatAnthropic` (the model), `@tool` (our functions, described to the model),
+- LangChain: `ChatAnthropic` or `ChatOpenAI` (the model, chosen by LLM_PROVIDER), `@tool` (our functions, described to the model),
   `bind_tools` (tells the model which tools exist).
 - LangGraph: the loop itself (nodes + conditional edge), the state, and the checkpointer, which keeps
   the conversation between questions (one thread per research = the chat's short-term memory).
@@ -21,7 +21,8 @@ import re
 from typing import Annotated
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
@@ -93,19 +94,28 @@ _model = None
 
 
 def model():
-    """LangChain chat model with the tools bound to it (created once, on first use)."""
+    """LangChain chat model with the tools bound to it (created once, on first use). LangChain gives both
+    providers the same interface, so the rest of the graph doesn't care which one runs."""
     global _model
     if _model is None:
-        llm = ChatAnthropic(model=settings.model_chat, api_key=settings.anthropic_api_key, max_tokens=8000,
-                            effort="low", max_retries=2, timeout=120)
+        if settings.llm_provider == "openai":
+            # Responses API: OpenAI only allows tools + reasoning effort together there
+            llm = ChatOpenAI(model=settings.model_chat, api_key=settings.openai_api_key, use_responses_api=True,
+                             reasoning={"effort": "low"}, max_retries=2, timeout=120)
+        else:
+            llm = ChatAnthropic(model=settings.model_chat, api_key=settings.anthropic_api_key, max_tokens=8000,
+                                effort="low", max_retries=2, timeout=120)
         _model = llm.bind_tools(TOOLS)
     return _model
 
 
 async def agent(state: ChatState) -> dict:
     """Reason + Act: the model answers, or asks for one or more tool calls."""
-    system = SystemMessage(content=[{"type": "text", "text": state["context"],
-                                     "cache_control": {"type": "ephemeral"}}])  # Anthropic prompt caching
+    if settings.llm_provider == "openai":  # OpenAI caches long prompt prefixes by itself
+        system = SystemMessage(state["context"])
+    else:  # Anthropic: mark the long facts prompt for prompt caching
+        system = SystemMessage(content=[{"type": "text", "text": state["context"],
+                                         "cache_control": {"type": "ephemeral"}}])
     reply = await model().ainvoke([system, *recent_turns(state["messages"])])
     return {"messages": [reply]}  # add_messages appends it to the history
 
@@ -176,13 +186,27 @@ async def _answer_live(rid: str, message: str) -> dict:
         state = await chat_graph().ainvoke(
             {"research_id": rid, "context": context, "messages": [HumanMessage(message)]}, config)
     except GraphRecursionError:
+        await forget_unanswered(config)
         return {"steps": [], "a": "That needed too many steps. Try a more specific question.", "cites": [],
                 "upd": "", "highlight": [], "refresh": False}
+    except Exception:
+        await forget_unanswered(config)  # API error: don't leave the question in the memory unanswered
+        raise
 
     out = _to_ui(state["messages"], comps, n_facts)
     if not out["refresh"]:  # an answer that added facts is tied to that moment: don't cache it
         await cache_store(rid, emb, n_facts, out)
     return out
+
+
+async def forget_unanswered(config: dict) -> None:
+    """A failed turn leaves its question (and maybe tool calls) in the saved conversation; the next turn
+    would answer it too. RemoveMessage, through the add_messages reducer, deletes them from the thread."""
+    snap = await chat_graph().aget_state(config)
+    messages = snap.values.get("messages", [])
+    last_q = max((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=None)
+    if last_q is not None:
+        await chat_graph().aupdate_state(config, {"messages": [RemoveMessage(id=m.id) for m in messages[last_q:]]})
 
 
 async def build_context(rid: str) -> tuple[str, int, list[dict]]:

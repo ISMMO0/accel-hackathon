@@ -102,7 +102,26 @@ START → agent ──tool_calls ?── oui ──► tools (ToolNode) ──�
 - La table `llm_calls` loggue chaque appel : agent, modèle, tokens, latence et coût.
 - **LangSmith (optionnel)** : avec `LANGSMITH_TRACING=true` et `LANGSMITH_API_KEY`, chaque exécution d'un graphe est tracée : chaque nœud avec son entrée et sa sortie, chaque tool et chaque appel du modèle de chat. Les runs sont nommés `hunt` et `chat` et portent le `research_id` dans leurs métadonnées.
 
-## 6. Ce qui n'a pas changé
+## 6. Qui fait quoi : Keenable, OpenAI ou Claude
+
+Keenable **n'est pas un LLM**. Il cherche sur le web et lit les pages. Il faut ensuite un modèle pour **décider** (quels concurrents garder) et **extraire** (quels faits sur la page). Chaque agent combine donc les deux :
+
+| Agent | Keenable (données web) | Modèle (`LLM_PROVIDER=openai`) |
+|---|---|---|
+| Scout | 3 recherches + lecture de 3 guides | `gpt-5.4-mini` choisit les vrais concurrents |
+| Researcher | recherche d'avis + lecture de 3 pages par concurrent | `gpt-5.4-nano` extrait les faits (beaucoup d'appels, donc le modèle le moins cher) |
+| Analyst, Strategist, Planner | — (ils lisent les faits stockés) | `gpt-5.4-mini` (peu d'appels, du raisonnement) |
+| Watcher | relit les pages connues | `gpt-5.4-nano`, seulement si la page a changé (hash) |
+| Chat | via ses tools | `gpt-5.4-mini` avec `ChatOpenAI` (Responses API) |
+| Mémoire / cache du chat | — | `text-embedding-3-small` (1 536 dimensions, comme la colonne pgvector) |
+
+- **Comment on change de fournisseur** : `LLM_PROVIDER=openai` ou `anthropic` dans `.env`. `OpenAILLM` hérite de `ClaudeLLM`. Les prompts et les schémas Pydantic sont les mêmes, seul l'appel à l'API change. Les sorties structurées utilisent `strict: true` chez OpenAI et `json_schema` chez Anthropic. Dans le chat, LangChain donne la même interface aux deux modèles (`ChatOpenAI` ou `ChatAnthropic`).
+- **Pourquoi pas `text-embedding-3-large`** : il produit 3 072 dimensions, alors que la colonne est en `vector(1536)`. Changer de modèle d'embedding oblige à changer la colonne **et** à recalculer tous les vecteurs existants.
+- **Mesure réelle** (« Boulangerie artisanale Paris 11e ») : 5 concurrents, 70 faits sourcés, **39,5 s**, **15 appels LLM pour 0,03 $**, premier concurrent affiché à 11 s. Le business plan arrive environ 20 s après.
+- **Les réglages pour limiter les dépenses** (`.env`) : `MAX_COMPETITORS=5`, `PAGES_PER_COMPANY=3`, `UPGRADE_INTERVAL_MIN=0`. L'Upgrader dépenserait sinon des crédits toutes les 10 minutes de lui-même. Ajoute à ça le cache des réponses LLM et le cache sémantique du chat.
+- **Mémoire du chat robuste** : si un tour échoue (erreur d'API), la question est retirée du fil avec `RemoveMessage`. Sinon, la question suivante y répondrait aussi.
+
+## 7. Ce qui n'a pas changé
 
 - **Continue, Enrich, Watcher et Upgrader** utilisent toujours `asyncio` directement, avec les mêmes fonctions d'agent. On pourrait les porter en graphes plus tard.
 - **L'API FastAPI, l'interface, le SSE, le MCP et la voix** sont identiques. Il y a une seule nouvelle route, `POST /api/research/{id}/resume`.

@@ -1,4 +1,5 @@
-"""Claude calls for each agent job, with a fixture-backed mock that has the same interface.
+"""LLM calls for each agent job: Claude (ClaudeLLM) or GPT (OpenAILLM), chosen by LLM_PROVIDER, plus a
+fixture-backed mock with the same interface.
 
 Real calls use structured outputs (JSON schema from the Pydantic models) so every agent returns
 validated data, never free text we have to parse.
@@ -33,11 +34,17 @@ from ..schemas import (
 T = TypeVar("T", bound=BaseModel)
 LogFn = Callable[..., Awaitable[None]]
 
-# $ per million tokens (input, output), for the cost numbers on the pitch slide
+# $ per million tokens (input, output), for the cost numbers on the Evidence page
 PRICES = {
     "claude-opus-5-5": (4.0, 20.0),
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-haiku-5-5": (0.10, 0.50),
+    "gpt-5.5": (5.0, 30.0),
+    "gpt-5.4": (2.5, 15.0),
+    "gpt-5.4-mini": (0.75, 4.50),
+    "gpt-5.4-nano": (0.20, 1.25),
+    "gpt-5-mini": (0.25, 2.0),
+    "gpt-5-nano": (0.05, 0.40),
 }
 
 UNTRUSTED = (
@@ -232,6 +239,58 @@ class ClaudeLLM:
         )
 
 
+class OpenAILLM(ClaudeLLM):
+    """Same agent jobs as ClaudeLLM (same prompts, same Pydantic schemas): only the API call differs.
+
+    OpenAI structured outputs with strict=True: the model can only answer JSON matching the schema
+    (our schemas forbid extra keys and require every field, which strict mode needs).
+    OpenAI caches long repeated prompt prefixes automatically, no cache_control needed."""
+
+    def __init__(self, log: LogFn):
+        from openai import AsyncOpenAI
+
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key, max_retries=2, timeout=120)
+        self.sem = asyncio.Semaphore(settings.llm_concurrency)
+        self.log = log
+
+    async def structured(self, *, agent: str, model: str, effort: str, system: str, user: str,
+                         out: type[T], research_id: str | None) -> T:
+        schema = _schema(out)
+        key = "llm:" + hashlib.sha256(f"{model}|{effort}|{out.__name__}|{system}|{user}".encode()).hexdigest()
+        if settings.llm_cache_hours and (hit := await cache.get(key)) is not None:
+            return out.model_validate(hit)
+        last_err = None
+        for _ in range(2):  # one retry if the output fails validation
+            t0 = time.perf_counter()
+            async with self.sem:
+                resp = await self.client.chat.completions.create(
+                    model=model,
+                    reasoning_effort=effort,  # low / medium: how long the model thinks before answering
+                    messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    response_format={"type": "json_schema",
+                                     "json_schema": {"name": out.__name__, "schema": schema, "strict": True}},
+                )
+            ms = int((time.perf_counter() - t0) * 1000)
+            u = resp.usage
+            pin, pout = PRICES.get(model, (2.5, 15.0))
+            cost = (u.prompt_tokens * pin + u.completion_tokens * pout) / 1e6
+            msg = resp.choices[0].message
+            ok = not msg.refusal and resp.choices[0].finish_reason == "stop"
+            await self.log(research_id=research_id, agent=agent, model=model, in_tokens=u.prompt_tokens,
+                           out_tokens=u.completion_tokens, ms=ms, cost_usd=cost, ok=ok)
+            if msg.refusal:
+                raise LLMError(f"{agent}: request declined")
+            try:
+                result = out.model_validate_json(msg.content or "")
+            except ValidationError as e:
+                last_err = e
+                continue
+            if settings.llm_cache_hours:
+                await cache.set(key, result.model_dump(), ttl_s=settings.llm_cache_hours * 3600)
+            return result
+        raise LLMError(f"{agent}: invalid output ({last_err})")
+
+
 class MockLLM:
     """Returns recorded fixture data with realistic delays. Same interface as ClaudeLLM."""
 
@@ -295,4 +354,7 @@ class MockLLM:
 
 
 def make_llm(log: LogFn):
-    return ClaudeLLM(log) if settings.anthropic_api_key else MockLLM(log)
+    """The agents' model provider, chosen by LLM_PROVIDER. No key = recorded demo data."""
+    if not settings.llm_key:
+        return MockLLM(log)
+    return OpenAILLM(log) if settings.llm_provider == "openai" else ClaudeLLM(log)
