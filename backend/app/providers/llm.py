@@ -4,12 +4,14 @@ Real calls use structured outputs (JSON schema from the Pydantic models) so ever
 validated data, never free text we have to parse.
 """
 import asyncio
+import hashlib
 import time
 from typing import Awaitable, Callable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from .. import fixtures
+from . import cache
 from ..config import settings
 from ..schemas import (
     Analysis,
@@ -81,6 +83,11 @@ class ClaudeLLM:
     async def structured(self, *, agent: str, model: str, effort: str, system: str, user: str,
                          out: type[T], research_id: str | None) -> T:
         schema = _schema(out)
+        # Response cache (exact match): the same request to the same model returns the stored answer with
+        # no API call, e.g. the same page read again for the same idea, or the same market asked twice.
+        key = "llm:" + hashlib.sha256(f"{model}|{effort}|{out.__name__}|{system}|{user}".encode()).hexdigest()
+        if settings.llm_cache_hours and (hit := await cache.get(key)) is not None:
+            return out.model_validate(hit)
         last_err = None
         for _ in range(2):  # one retry if the output fails validation
             t0 = time.perf_counter()
@@ -106,9 +113,13 @@ class ClaudeLLM:
                 raise LLMError(f"{agent}: request declined")
             text = next((b.text for b in resp.content if b.type == "text"), "")
             try:
-                return out.model_validate_json(text)
+                result = out.model_validate_json(text)
             except ValidationError as e:
                 last_err = e
+                continue
+            if settings.llm_cache_hours:
+                await cache.set(key, result.model_dump(), ttl_s=settings.llm_cache_hours * 3600)
+            return result
         raise LLMError(f"{agent}: invalid output ({last_err})")
 
     # ---- agent jobs ----

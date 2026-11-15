@@ -56,6 +56,7 @@ class Settings:
     llm_concurrency: int = field(default_factory=lambda: int(_env("LLM_CONCURRENCY", "8")))
     fetch_concurrency: int = field(default_factory=lambda: int(_env("FETCH_CONCURRENCY", "12")))
     h_concurrency: int = field(default_factory=lambda: int(_env("H_CONCURRENCY", "3")))
+    llm_cache_hours: int = field(default_factory=lambda: int(_env("LLM_CACHE_HOURS", "24")))  # 0 = off
     memory_threshold: float = field(default_factory=lambda: float(_env("MEMORY_THRESHOLD", "0.6")))
 
     # behaviour

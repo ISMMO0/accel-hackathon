@@ -9,7 +9,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from . import views
-from .pipeline import chat, hunt
+from .agents import chat_graph
+from .pipeline import hunt
 from .store import get_store
 
 router = APIRouter()
@@ -67,7 +68,7 @@ async def _call(name: str, a: dict):
         return [{"competitor": names[f["company_id"]], "kind": f["kind"], "item": f.get("item", ""),
                  "value": f["value"], "fact": f["text"], "source": f["source"]} for f in rows[:60]]
     if name == "ask_project":
-        out = await chat.answer(a["project_id"], a["question"])
+        out = await chat_graph.answer(a["project_id"], a["question"])
         return {"answer": out["a"], "sources": out.get("cites", []), "saved": out.get("upd", "")}
     if name == "start_research":
         r = await hunt.start(a["idea"], mode="fresh")
