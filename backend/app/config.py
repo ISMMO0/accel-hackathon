@@ -16,6 +16,24 @@ def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
+# Which company's models run the agents: "anthropic" (Claude) or "openai" (GPT). Web search and page
+# reading stay on Keenable either way; embeddings stay on OpenAI.
+LLM_PROVIDER = _env("LLM_PROVIDER", "anthropic").lower()
+
+# Default model per job and provider. A cheap, fast model for the many small calls (reading pages,
+# watching changes), a stronger one for the few calls that reason over the whole market.
+DEFAULT_MODELS = {
+    "anthropic": {"scout": "claude-opus-5-5", "extract": "claude-opus-5-5", "analyst": "claude-opus-5-5",
+                  "strategist": "claude-opus-5-5", "chat": "claude-opus-5-5"},
+    "openai": {"scout": "gpt-5.4-mini", "extract": "gpt-5.4-nano", "analyst": "gpt-5.4-mini",
+               "strategist": "gpt-5.4-mini", "chat": "gpt-5.4-mini"},
+}
+
+
+def _model(job: str) -> str:
+    return _env(f"MODEL_{job.upper()}", DEFAULT_MODELS.get(LLM_PROVIDER, DEFAULT_MODELS["anthropic"])[job])
+
+
 @dataclass(frozen=True)
 class Settings:
     # keys (empty = mock)
@@ -35,12 +53,13 @@ class Settings:
     mcp_token: str = field(default_factory=lambda: _env("MCP_TOKEN"))  # required on /mcp when set (public deploys)
     valkey_url: str = field(default_factory=lambda: _env("VALKEY_URL"))
 
-    # models (one per job, all overridable)
-    model_scout: str = field(default_factory=lambda: _env("MODEL_SCOUT", "claude-opus-5-5"))
-    model_extract: str = field(default_factory=lambda: _env("MODEL_EXTRACT", "claude-opus-5-5"))
-    model_analyst: str = field(default_factory=lambda: _env("MODEL_ANALYST", "claude-opus-5-5"))
-    model_strategist: str = field(default_factory=lambda: _env("MODEL_STRATEGIST", "claude-opus-5-5"))
-    model_chat: str = field(default_factory=lambda: _env("MODEL_CHAT", "claude-opus-5-5"))
+    # models (one per job, all overridable with MODEL_<JOB>)
+    llm_provider: str = LLM_PROVIDER
+    model_scout: str = field(default_factory=lambda: _model("scout"))
+    model_extract: str = field(default_factory=lambda: _model("extract"))
+    model_analyst: str = field(default_factory=lambda: _model("analyst"))  # Analyst
+    model_strategist: str = field(default_factory=lambda: _model("strategist"))  # Strategist + Planner
+    model_chat: str = field(default_factory=lambda: _model("chat"))
     embed_model: str = field(default_factory=lambda: _env("EMBED_MODEL", "text-embedding-3-small"))
     # thinking effort per job (low = fastest; raise if quality drops)
     effort_scout: str = field(default_factory=lambda: _env("EFFORT_SCOUT", "low"))
@@ -56,6 +75,7 @@ class Settings:
     llm_concurrency: int = field(default_factory=lambda: int(_env("LLM_CONCURRENCY", "8")))
     fetch_concurrency: int = field(default_factory=lambda: int(_env("FETCH_CONCURRENCY", "12")))
     h_concurrency: int = field(default_factory=lambda: int(_env("H_CONCURRENCY", "3")))
+    llm_cache_hours: int = field(default_factory=lambda: int(_env("LLM_CACHE_HOURS", "24")))  # 0 = off
     memory_threshold: float = field(default_factory=lambda: float(_env("MEMORY_THRESHOLD", "0.6")))
 
     # behaviour
@@ -66,19 +86,24 @@ class Settings:
     upgrade_interval_min: int = field(default_factory=lambda: int(_env("UPGRADE_INTERVAL_MIN", "10")))
     geocode_user_agent: str = field(default_factory=lambda: _env("GEOCODE_USER_AGENT", "launch-spy-hackathon/0.1"))
 
-    embed_dim: int = 1536
+    embed_dim: int = 1536  # text-embedding-3-small; the pgvector column is vector(1536)
+
+    @property
+    def llm_key(self) -> str:
+        """The key of the provider that runs the agents (empty = recorded demo data)."""
+        return self.openai_api_key if self.llm_provider == "openai" else self.anthropic_api_key
 
     def live(self) -> dict[str, bool]:
         """Which providers are real vs mock. Shown in /api/health and the UI status pill."""
-        # Without a Claude key the whole hunt runs on fixtures (mocking the LLM over real pages is meaningless).
-        # With a Claude key: search falls back to Claude's own web search tool, fetch to keyless Jina Reader.
+        # Without an LLM key the whole hunt runs on fixtures (mocking the LLM over real pages is meaningless).
+        # With one: search uses Keenable (falls back to Claude's web search), fetch falls back to keyless Jina.
         return {
-            "llm": bool(self.anthropic_api_key),
-            "search": bool(self.anthropic_api_key),
-            "fetch": bool(self.anthropic_api_key),
+            "llm": bool(self.llm_key),
+            "search": bool(self.llm_key),
+            "fetch": bool(self.llm_key),
             "browser": bool(self.h_api_key and self.h_api_url),
             "embed": bool(self.openai_api_key),
-            "geocode": bool(self.anthropic_api_key),  # real geocoding is only worth it with real data
+            "geocode": bool(self.llm_key),  # real geocoding is only worth it with real data
             "voice": bool(self.elevenlabs_api_key or self.gradium_api_key),
             "database": bool(self.database_url),
             "cache": bool(self.valkey_url),

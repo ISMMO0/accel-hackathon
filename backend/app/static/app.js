@@ -91,6 +91,7 @@ function addNode(c){
   const[x,y]=posOf(c);
   const edge=el("line",{x1:CX,y1:CY,x2:CX,y2:CY,class:"edge"},$("#edges"));
   const g=el("g",{class:"node",tabindex:0,role:"button","aria-label":c.n},$("#nodes"));
+  const ring=el("circle",{cx:x,cy:y,r:33,class:"ring"},g);  // this competitor's own Researcher (spins while it reads)
   el("circle",{cx:x,cy:y,r:27,class:"disc"},g);
   el("text",{x,y,class:"ini"},g).textContent=(c.n[0]||"?").toUpperCase();
   const lu=logoUrl(c.domain);
@@ -99,7 +100,7 @@ function addNode(c){
   const sub=el("text",{x,y:y+64,class:"sub"},g);sub.textContent="0 facts";
   const open=()=>cur&&openDossier(cur,c.id);
   g.addEventListener("click",open);g.addEventListener("keydown",e=>e.key==="Enter"&&open());
-  nodes[c.id]={g,sub,edge,x,y,f:0};
+  nodes[c.id]={g,sub,edge,ring,x,y,f:0,pages:0};
   gsap.from(g,{opacity:0,scale:0,svgOrigin:`${x} ${y}`,duration:.7,ease:"back.out(1.8)"});
   gsap.to(edge,{attr:{x2:x,y2:y},duration:.6,ease:"expo.out"});
   comps++;tick();
@@ -122,6 +123,22 @@ function addFacts(id,n){
   gsap.to(o,{v:nd.f,duration:.8,onUpdate:()=>nd.sub.textContent=Math.round(o.v)+" facts"});
   facts+=n;tick();
 }
+/* one spinning ring per competitor: all Researchers of a LangGraph step start together, each stops when done */
+function startReading(id){
+  const nd=nodes[id];if(!nd)return;
+  nd.pages=0;nd.sub.textContent="reading…";gsap.set(nd.ring,{clearProps:"opacity"});nd.ring.classList.remove("read");nd.ring.classList.add("spin");  // CSS spins it
+}
+function pageRead(id){
+  const nd=nodes[id];if(!nd)return;
+  nd.pages++;if(!nd.f)nd.sub.textContent=`reading · ${nd.pages} page${nd.pages>1?"s":""}`;
+  gsap.fromTo(nd.ring,{attr:{r:38}},{attr:{r:33},duration:.5,ease:"expo.out"});
+}
+function doneReading(id,n){
+  const nd=nodes[id];if(!nd)return;
+  nd.ring.classList.replace("spin","read");
+  if(!n)nd.sub.textContent="no facts found";
+  gsap.fromTo(nd.ring,{opacity:1},{opacity:.35,duration:1.2});
+}
 function log(k,msg,src,insight){
   if(!msg)return;
   const ul=$("#feed");if(evs===0)ul.innerHTML="";
@@ -143,6 +160,9 @@ const ON={
   agent_status:(e,p)=>{setAgent(e.agent,p.status);move(e.agent);log(e.agent,p.msg,p.src)},
   competitor_found:(e,p)=>{addNode(p.company);move(e.agent,p.company.id);if(p.facts)addFacts(p.company.id,p.facts);if(!p.quiet)log(e.agent,p.msg,p.src)},
   fact_added:(e,p)=>{setAgent("research");move("research",p.company_id);addFacts(p.company_id,p.count);log("research",p.msg,p.src)},
+  researcher_started:(e,p)=>{setAgent("research","Reading pages in parallel");startReading(p.company_id)},
+  page_fetched:(e,p)=>{pageRead(p.company_id);log("research",p.msg,p.src)},
+  researcher_done:(e,p)=>doneReading(p.company_id,p.facts),
   analysis:(e,p)=>{setAgent("analyst","Cross-checking facts");move("analyst",p.company_id);log("analyst",p.msg,p.src)},
   memory_match:(e,p)=>{setAgent("analyst",p.status);move("analyst");log("analyst",p.msg,p.src,true)},
   change_detected:(e,p)=>{setAgent("watch","Comparing with last snapshot");move("watch",p.company_id);log("watch",p.msg,p.src)},
@@ -239,7 +259,7 @@ async function loadLib(){
 }
 
 /* ---------------- report ---------------- */
-const stars=n=>"★".repeat(Math.round(n||0))+"☆".repeat(5-Math.round(n||0));
+const stars=n=>{const k=Math.max(0,Math.min(5,Math.round(n||0)));return "★".repeat(k)+"☆".repeat(5-k)};  // data may be off-scale
 let repId=null;
 async function renderReport(id,keepTab){
   repId=id;

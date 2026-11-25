@@ -7,6 +7,7 @@ without a Claude key (see settings.live()).
 import asyncio
 import contextvars
 import hashlib
+import logging
 import math
 import re
 import time
@@ -16,6 +17,8 @@ import httpx
 from .. import fixtures
 from ..config import settings
 from . import cache
+
+log = logging.getLogger("web")
 
 _http: httpx.AsyncClient | None = None
 _fetch_sem = asyncio.Semaphore(settings.fetch_concurrency)
@@ -98,6 +101,8 @@ async def _tavily(query: str, n: int) -> list[dict]:
 
 async def _claude_search(query: str, n: int = 8) -> list[dict]:
     """No Tavily key: let Claude's server-side web search tool run the query and keep its result list."""
+    if settings.llm_provider != "anthropic":
+        return []
     from anthropic import AsyncAnthropic
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -214,11 +219,14 @@ def clean(text: str) -> str:
 # ---------------- embeddings ----------------
 async def embed(text: str) -> list[float]:
     if settings.openai_api_key:
-        r = await http().post("https://api.openai.com/v1/embeddings",
-                              headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                              json={"model": settings.embed_model, "input": text[:8000]})
-        r.raise_for_status()
-        return r.json()["data"][0]["embedding"]
+        try:
+            r = await http().post("https://api.openai.com/v1/embeddings",
+                                  headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                                  json={"model": settings.embed_model, "input": text[:8000]})
+            r.raise_for_status()
+            return r.json()["data"][0]["embedding"]
+        except Exception as e:  # expired key, outage: the memory match degrades, the hunt still runs
+            log.warning("embedding failed, using the keyless fallback: %s", e)
     return _hash_embed(text)
 
 

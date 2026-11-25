@@ -1,4 +1,7 @@
-"""The hunt: Scout → parallel Researchers → Analyst → Strategist, plus Continue mode and the Watcher.
+"""The agents' work: Scout, Researcher, Analyst, Strategist, Planner, Watcher, Upgrader.
+
+A fresh hunt is orchestrated by LangGraph (app/agents/hunt_graph.py), which calls these functions.
+Continue, Enrich, the Watcher and the Upgrader run them directly with asyncio.
 
 Every step writes to the store and emits an event before moving on, so nothing is lost if the
 browser disconnects and a failed competitor never fails the whole run.
@@ -16,6 +19,7 @@ from ..bus import emit
 from ..config import settings
 from ..providers import web
 from ..providers.llm import MockLLM, make_llm
+from ..schemas import Analysis, Strategy
 from ..store import get_store
 from ..store.memory import company_id
 
@@ -88,7 +92,8 @@ async def start(query: str, mode: str = "fresh", parent_id: str | None = None) -
     emb = await web.embed(query)
     r = await store.create_research(query=query, embedding=emb, is_recorded=not web.live())
     bus.new_research(r["id"])
-    spawn(_guard(r["id"], _fresh(r["id"], query)))
+    from ..agents.hunt_graph import run_hunt  # the LangGraph orchestration (imported here: it imports this module)
+    spawn(_guard(r["id"], run_hunt(r["id"], query)))
     return {"id": r["id"], "after": 0}
 
 
@@ -155,12 +160,15 @@ async def settle(rid: str):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# ---------------------------------------------------------------- fresh hunt
-async def _fresh(rid: str, query: str):
-    store, t0 = get_store(), time.perf_counter()
-    await emit(rid, "scout", "run_started", "", "", query=query, live=web.live())
+# ---------------------------------------------------------------- the agents' work
+# A fresh hunt is orchestrated by the LangGraph graph in app/agents/. The functions below are the work
+# each agent does; the graph nodes call them, and Continue / Enrich reuse them directly.
+async def scout_companies(rid: str, query: str) -> list[dict]:
+    """Scout: what Claude knows about the market + live web search + "best of" guides -> real competitors.
 
-    # 1. Scout
+    Returns the competitors (already saved and shown in the UI)."""
+    store = get_store()
+    await emit(rid, "scout", "run_started", "", "", query=query, live=web.live())
     queries = [query, f"{query} competitors", f"best alternatives {query}"]
     await emit(rid, "scout", "agent_status", f"Running {len(queries)} searches in parallel",
                " · ".join(f"“{q}”" for q in queries), status="Searching the web")
@@ -193,50 +201,50 @@ async def _fresh(rid: str, query: str):
         taken.add(key)
         companies.append({"id": company_id(key), "domain": key, "name": c.name, "location": c.location_hint,
                           "lat": None, "lng": None, "sim": max(0.3, min(0.95, c.similarity)),
-                          "angle": -60 + i * (360 / n) + (17 if i % 2 else 0), "pos": i, "facts": []})
+                          "angle": -60 + i * (360 / n) + (17 if i % 2 else 0), "pos": i})
 
-    async def persist_companies():
-        await asyncio.gather(*(store.upsert_company(c["domain"], c["name"], c["location"], cid=c["id"])
-                               for c in companies))
-        await asyncio.gather(*(store.link_company(rid, c["id"], c["sim"], c["angle"], c["pos"], {})
-                               for c in companies))
-    ready = later(rid, persist_companies)
-
-    for c in companies:  # shown immediately, saved in the background
+    # Saved before the Researchers start, so their facts can point to the companies.
+    await asyncio.gather(*(store.upsert_company(c["domain"], c["name"], c["location"], cid=c["id"])
+                           for c in companies))
+    await asyncio.gather(*(store.link_company(rid, c["id"], c["sim"], c["angle"], c["pos"], {})
+                           for c in companies))
+    for c in companies:
         await emit(rid, "scout", "competitor_found", f"Found <b>{c['name']}</b> · {c['location'] or c['domain']}",
                    f"similarity {c['sim']:.2f}", company={"id": c["id"], "n": c["name"], "loc": c["location"],
                                                           "sim": c["sim"], "ang": c["angle"], "domain": c["domain"]})
         await _mock_pause(0.45)
 
-    # Map pins: geocode the Scout's addresses in the background while the researchers read.
-    geo = asyncio.create_task(_geocode_all(rid, companies, ready))
-
-    # Memory: pages we already read for these competitors (one query, overlaps with the Scout's writes).
-    try:
-        memory = await store.page_memory([c["id"] for c in companies])
+    try:  # memory: pages we already read for these competitors in earlier projects
+        known_pages = len(await store.page_memory([c["id"] for c in companies]))
     except Exception:
-        memory = {}
-    known = sum(1 for (cid, _) in memory if any(c["id"] == cid for c in companies))
-    if known:
-        await emit(rid, "analyst", "memory_match", f"Memory: {known} pages already read for these competitors",
+        known_pages = 0
+    if known_pages:
+        await emit(rid, "analyst", "memory_match", f"Memory: {known_pages} pages already read for these competitors",
                    "unchanged pages are reused without calling Claude", status="Loading memory")
-
-    # 2. Researchers, all in parallel; one failing never stops the others
     await emit(rid, "research", "agent_status", "", "", status=f"Reading pages for {len(companies)} competitors")
-    await asyncio.gather(*(_research_company(rid, query, c, i, ready, memory) for i, c in enumerate(companies)))
-    await geo
-
-    # 3 + 4. Analyst, Strategist
-    await _analyze_and_strategize(rid, query, companies, ready)
-
-    await _finish(rid, t0, mode="fresh", companies=companies, reused=sum(c.get("reused", 0) for c in companies))
+    return companies
 
 
-async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asyncio.Task | None = None,
-                            memory: dict | None = None):
-    """Fetch + read one competitor's pages. Facts go into comp["facts"] at once and to the DB in the background."""
+async def research_company(rid: str, query: str, comp: dict, i: int = 0, memory: dict | None = None) -> list[dict]:
+    """Researcher: fetch + read one competitor's pages. Returns its facts (also saved to the DB in the background)."""
     store = get_store()
     comp.setdefault("facts", [])
+    if memory is None and web.live():
+        try:
+            memory = await store.page_memory([comp["id"]])
+        except Exception:
+            memory = {}
+    # UI: every Researcher of the step announces itself at once, so the parallel work is visible
+    await emit(rid, "research", "researcher_started", "", "", company_id=comp["id"])
+
+    async def fetch(url: str):
+        t = time.perf_counter()
+        page = await _fetch_page(url)
+        if page:
+            await emit(rid, "research", "page_fetched", f"{comp['name']}: read {_short(url)}",
+                       f"{page[2]} · {time.perf_counter() - t:.1f}s", company_id=comp["id"])
+        return page
+
     await _mock_pause(0.55 * i)  # mock: stagger so the demo animation reads well
     try:
         async with asyncio.timeout(settings.researcher_timeout_s):
@@ -250,14 +258,17 @@ async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asy
                     except Exception:
                         return []
                     urls = [r["url"] for r in rev if r["url"] not in site][: settings.pages_per_company - len(site)]
-                    return await asyncio.gather(*(_fetch_page(u) for u in urls))
+                    return await asyncio.gather(*(fetch(u) for u in urls))
 
                 # own site and review search at the same time
-                site_pages, review_pages = await asyncio.gather(
-                    asyncio.gather(*(_fetch_page(u) for u in site)), reviews())
+                site_pages, review_pages = await asyncio.gather(asyncio.gather(*(fetch(u) for u in site)), reviews())
                 pages = [p for p in [*site_pages, *review_pages] if p]
             else:
                 pages = [(u, t, "fixture") for u, t in web.fixture_pages(comp)]
+                for u, _, _ in pages:
+                    await _mock_pause(0.25)
+                    await emit(rid, "research", "page_fetched", f"{comp['name']}: read {_short(u)}", "recorded",
+                               company_id=comp["id"])
 
             async def read(url, text, fetcher) -> int:
                 seen = (memory or {}).get((comp["id"], url))
@@ -271,7 +282,7 @@ async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asy
                 ext = await llm().extract(query, comp, url, text, rid)
                 rows = [{"kind": f.kind, "text": f.text, "value": f.value, "item": f.item} for f in ext.facts]
                 comp["facts"] += [{**r, "source": url} for r in rows]
-                later(rid, lambda: store.save_page(comp["id"], rid, url, text, fetcher, rows), after=ready)
+                later(rid, lambda: store.save_page(comp["id"], rid, url, text, fetcher, rows))
                 if rows:
                     via = {"h": " · H Company browser agent", "fixture": " · recorded"}.get(fetcher, f" · {fetcher}")
                     await emit(rid, "research", "fact_added", f"{comp['name']}: {rows[0]['text']}",
@@ -286,18 +297,26 @@ async def _research_company(rid: str, query: str, comp: dict, i: int, ready: asy
     except Exception as e:
         await emit(rid, "research", "agent_status", f"{comp['name']}: research incomplete ({type(e).__name__})",
                    "partial facts kept", status="Some pages failed")
+    await emit(rid, "research", "researcher_done", "", "", company_id=comp["id"], facts=len(comp["facts"]))
+    return comp["facts"]
 
 
-async def _geocode_all(rid: str, companies: list[dict], ready: asyncio.Task | None):
-    store = get_store()
-    for c in companies:
-        loc = c.get("location") or ""
-        if not loc:
-            continue
-        ll = await web.geocode(loc) or await web.geocode(re.sub(r"\(.*?\)", "", loc).strip(" ,"))
-        if ll:
-            c["lat"], c["lng"] = ll
-            later(rid, lambda c=c, ll=ll: store.update_company(c["id"], lat=ll[0], lng=ll[1]), after=ready)
+def _short(url: str) -> str:
+    """climb-up.fr/tarifs instead of the full URL, for the live feed."""
+    u = re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+    return u if len(u) <= 48 else u[:45] + "…"
+
+
+async def geocode_company(rid: str, c: dict) -> list[float] | None:
+    """Map pin from the Scout's address hint (saved in the background)."""
+    loc = c.get("location") or ""
+    if not loc:
+        return None
+    ll = await web.geocode(loc) or await web.geocode(re.sub(r"\(.*?\)", "", loc).strip(" ,"))
+    if ll:
+        later(rid, lambda: get_store().update_company(c["id"], lat=ll[0], lng=ll[1]))
+        return list(ll)
+    return None
 
 
 async def _fetch_page(url: str, budget: float = 15):
@@ -310,18 +329,26 @@ async def _fetch_page(url: str, budget: float = 15):
         return None
 
 
-async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], ready: asyncio.Task | None = None):
+async def _analyze_and_strategize(rid: str, query: str, companies: list[dict]):
+    """Analyst then Strategist over the facts stored in the database (Continue and Enrich rounds)."""
+    got = await get_store().report_facts([c["id"] for c in companies], per_company=15)
+    facts_by = {cid: v["latest"] for cid, v in got.items()}
+    analysis = await analyze_market(rid, query, companies, facts_by)
+    await strategize_market(rid, query, companies, analysis, n_facts=sum(len(v) for v in facts_by.values()))
+
+
+async def analyze_market(rid: str, query: str, companies: list[dict], facts_by: dict[str, list[dict]]) -> Analysis:
+    """Analyst: places every competitor on one market map, using ONLY the stored facts."""
     store = get_store()
     await emit(rid, "analyst", "agent_status", "", "", status="Cross-checking facts")
-    if all("facts" in c for c in companies):  # fresh hunt: facts are already in memory
-        facts_by = {c["id"]: c["facts"][:15] for c in companies}
-    else:  # continue mode: read them from the database (one query)
-        got = await store.report_facts([c["id"] for c in companies], per_company=15)
-        facts_by = {cid: v["latest"] for cid, v in got.items()}
     payload = [{"name": c["name"], "domain": c["domain"],
-                "facts": [{"kind": f["kind"], "text": f["text"], "source": f["source"]} for f in facts_by[c["id"]]]}
+                "facts": [{"kind": f["kind"], "text": f["text"], "source": f["source"]}
+                          for f in facts_by.get(c["id"], [])]}
                for c in companies]
     analysis = await llm().analyze(query, payload, rid)
+    for a in analysis.companies:  # models sometimes copy a /10 score from the page: bring it back to /5
+        if a.rating > 5:
+            a.rating = round(min(a.rating / 2, 5.0), 1)
     by_domain = {c["domain"]: c for c in companies}
 
     async def place(a):
@@ -337,8 +364,8 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], r
                 "rating": a.rating, "sum": a.summary, "plans": [[p.name, p.price] for p in a.plans], "q": a.quotes,
                 "change": a.change}
         later(rid, lambda: store.update_company(c["id"], location=a.location, lat=ll[0] if ll else None,
-                                                lng=ll[1] if ll else None), after=ready)
-        later(rid, lambda: store.update_link(rid, c["id"], view), after=ready)
+                                                lng=ll[1] if ll else None))
+        later(rid, lambda: store.update_link(rid, c["id"], view))
 
     await asyncio.gather(*(place(a) for a in analysis.companies))
     for a in sorted(analysis.companies, key=lambda a: -a.rating)[:3]:
@@ -347,12 +374,18 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], r
             await emit(rid, "analyst", "analysis", f"{c['name']}: {a.rating}★, top complaint “{a.complaint.lower()}”",
                        "reviews clustered", company_id=c["id"])
             await _mock_pause(0.5)
+    return analysis
 
+
+async def strategize_market(rid: str, query: str, companies: list[dict], analysis: Analysis, n_facts: int) -> Strategy:
+    """Strategist: finds the gap on the market map and how to beat each competitor."""
+    store = get_store()
     await emit(rid, "strat", "agent_status", "", "", status="Finding the gap")
     s = await llm().strategize(query, analysis, rid)
+    by_domain = {c["domain"]: c for c in companies}
     for cs in s.companies:
         if c := by_domain.get(_domain(cs.domain)):
-            later(rid, lambda c=c, beat=cs.beat: store.update_link(rid, c["id"], {"beat": beat}), after=ready)
+            later(rid, lambda c=c, beat=cs.beat: store.update_link(rid, c["id"], {"beat": beat}))
     f = analysis.frame
     you_ll = None
     if not web.live():
@@ -363,16 +396,17 @@ async def _analyze_and_strategize(rid: str, query: str, companies: list[dict], r
               "gap": {"x0": s.gap.x0, "x1": s.gap.x1, "y0": s.gap.y0, "y1": s.gap.y1, "t": s.gap.label},
               "verdict": [s.headline, s.detail], "plan": s.plan}
     later(rid, lambda: store.update_research(rid, market=market))
-    facts = sum(len(v) for v in facts_by.values())
-    await emit(rid, "strat", "insight", f"Gap found: {s.headline}", f"based on {facts} key facts")
+    await emit(rid, "strat", "insight", f"Gap found: {s.headline}", f"based on {n_facts} key facts")
     await _mock_pause(0.8)
     await emit(rid, "strat", "insight", s.plan, f"{len(companies)} dossiers written")
+    return s
 
 
 async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: list[dict] | None = None,
-                  base_stats: dict | None = None):
+                  base_stats: dict | None = None, plan: bool = True):
+    """Marks the run done once every background write has landed. t0 = time.time() when the run started."""
     store = get_store()
-    secs = round(time.perf_counter() - t0, 1)  # what the user waited for
+    secs = round(time.time() - t0, 1)  # what the user waited for
     await settle(rid)  # every background write has landed before we call it done
     if companies is not None and all("facts" in c for c in companies):
         n_comps, facts = len(companies), sum(len(c["facts"]) for c in companies)
@@ -390,12 +424,13 @@ async def _finish(rid: str, t0: float, mode: str, reused: int = 0, companies: li
     except Exception:
         log.warning("knowledge log failed for %s", rid)
     await emit(rid, "strat", "run_done", "", "", mode=mode, **totals)
-    refresh_plan(rid)  # new data → the Planner rewrites the business plan in the background
+    if plan:  # new data → the Planner rewrites the business plan in the background
+        refresh_plan(rid)
 
 
 # ---------------------------------------------------------------- continue + watcher
 async def _continue(rid: str, query: str):
-    store, t0 = get_store(), time.perf_counter()
+    store, t0 = get_store(), time.time()
     r, comps, base_stats = await asyncio.gather(store.get_research(rid), store.research_companies(rid),
                                                 store.llm_stats(rid))
     reused = await store.count_facts([c["id"] for c in comps])
@@ -484,7 +519,7 @@ async def _enrich(rid: str):
     """Go back to every competitor and fetch what's still missing: prices/menu, reviews, news.
 
     Pages already read (page memory) are skipped, so every round adds new sources instead of repeating."""
-    store, t0 = get_store(), time.perf_counter()
+    store, t0 = get_store(), time.time()
     r, comps, base_stats = await asyncio.gather(store.get_research(rid), store.research_companies(rid),
                                                 store.llm_stats(rid))
     facts_by = await store.report_facts([c["id"] for c in comps], per_company=200)

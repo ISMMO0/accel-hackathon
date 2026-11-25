@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from . import bus, views
 from .mcp import router as mcp_router
 from .config import settings
-from .pipeline import chat, hunt
+from .agents import chat_graph, checkpointer, hunt_graph
+from .pipeline import hunt
 from .providers import web
 from .store import get_store
 
@@ -38,7 +39,7 @@ async def seed():
                 continue
             r = await store.create_research(query=query, embedding=await web.embed(query), is_recorded=True)
             bus.new_research(r["id"])
-            await hunt._fresh(r["id"], query)
+            await hunt_graph.run_hunt(r["id"], query)
             when = datetime.now(timezone.utc) - timedelta(days=days)
             await store.update_research(r["id"], finished_at=when, started_at=when, seen_at=when)
             await hunt.check_changes(r["id"], await store.research_companies(r["id"]))  # "changes since last visit"
@@ -71,16 +72,18 @@ async def upgrader_loop():
 async def lifespan(app: FastAPI):
     store = get_store()
     await store.init()
-    await store.mark_interrupted()  # hunts cut off by a restart: say so instead of "running" forever
+    await store.mark_interrupted()  # hunts cut off by a restart: say so (POST /resume continues them)
+    await checkpointer.open_checkpointer()  # LangGraph saves each run's state here after every step
     if settings.seed_demo:
         await seed()
     if settings.watch_interval_min > 0:
         hunt.spawn(watcher_loop())
     if settings.upgrade_interval_min > 0:
         hunt.spawn(upgrader_loop())
-    logging.info("Launch Spy ready · store=%s · live=%s", store.kind, settings.live())
+    logging.info("Before You Start ready · store=%s · live=%s", store.kind, settings.live())
     yield
     await bus.flush()
+    await checkpointer.close_checkpointer()
     await store.close()
 
 
@@ -209,7 +212,7 @@ async def research_chat(rid: str, body: ChatIn):
         raise HTTPException(404, "Research not found")
     if not body.message.strip():
         raise HTTPException(400, "Ask something first.")
-    return await chat.answer(rid, body.message.strip())
+    return await chat_graph.answer(rid, body.message.strip())
 
 
 @app.post("/api/research/{rid}/enrich")
@@ -221,6 +224,22 @@ async def enrich(rid: str):
     if r["status"] == "running":
         raise HTTPException(409, "Agents are already working on this research")
     return await hunt.start_enrich(rid)
+
+
+@app.post("/api/research/{rid}/resume")
+async def resume(rid: str):
+    """Continue a hunt cut by a crash or restart from its last LangGraph checkpoint (finished steps are kept)."""
+    r = await get_store().get_research(rid)
+    if not r:
+        raise HTTPException(404, "Research not found")
+    if r["status"] == "running":
+        raise HTTPException(409, "Agents are already working on this research")
+    if not await hunt_graph.can_resume(rid):
+        raise HTTPException(409, "Nothing to resume: this run finished or has no checkpoint")
+    after = await bus.last_event_id(rid)
+    await get_store().update_research(rid, status="running")
+    hunt.spawn(hunt._guard(rid, hunt_graph.resume_hunt(rid)))
+    return {"id": rid, "after": after}
 
 
 @app.post("/api/research/{rid}/plan")
