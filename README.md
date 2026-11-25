@@ -8,17 +8,8 @@ Built in one day at **Accel AI Innovate Paris** (22 October 2026), challenge *Fu
 >
 > **Links:** [Live app](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app) · [Projects](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/library) · [Map](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/map) · [Evidence page](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/evidence) · [Connectors (MCP)](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/#/connectors) · [Health check](https://01a163b2-0176-78f9-8ca3-a1e603657fed-8000.eur-1.aiven.app/api/health) · [Code on GitHub](https://github.com/ISMMO0/accel-hackathon)
 >
-> **Two branches:**
->
-> | | [`main`](https://github.com/ISMMO0/accel-hackathon/tree/main) | [`langgraph`](https://github.com/ISMMO0/accel-hackathon/tree/langgraph) |
-> |---|---|---|
-> | What | The hackathon version | Same app, agents rebuilt with LangGraph |
-> | Orchestration | Plain `asyncio` | LangGraph graph: Researchers in parallel, state saved in Postgres after each step, resume after a crash |
-> | Chat | Hand-written tool loop | ReAct agent (LangGraph + LangChain tools), semantic answer cache |
-> | Models | Claude | OpenAI or Claude (`LLM_PROVIDER`) |
-> | Where | Deployed (live app above) | Runs locally |
->
-> Everything else (UI, MCP server, Postgres + pgvector, Keenable) is the same. Details: [docs/LANGGRAPH.md](https://github.com/ISMMO0/accel-hackathon/blob/langgraph/docs/LANGGRAPH.md).
+> **Branches:** `main` is the current version: the agents are orchestrated with **LangGraph** (Researchers in parallel, state saved in Postgres after each step, resume after a crash), the chat is a ReAct agent with LangChain tools and a semantic answer cache, and the models are OpenAI or Claude (`LLM_PROVIDER`). Details: [docs/LANGGRAPH.md](docs/LANGGRAPH.md).
+> The original one-day hackathon version (plain `asyncio`, Claude) is kept on the [`hackathon`](https://github.com/ISMMO0/accel-hackathon/tree/hackathon) branch.
 
 ![Research report: competitors orbiting, your ideal business plan, the market gap](docs/images/report.png)
 
